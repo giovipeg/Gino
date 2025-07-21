@@ -15,16 +15,14 @@ class RobotVisualisation:
 
     def _resolve_urdf_path(self, name):
         # Use the directory of this file to construct the URDF path
-        base_dir = os.path.join(os.path.dirname(__file__), 'urdf')
         if not name.endswith(".urdf"):
             name += ".urdf"
-        urdf_path = os.path.join(base_dir, name)
-        if os.path.exists(name):
-            return name
-        elif os.path.exists(urdf_path):
-            return urdf_path
-        else:
-            raise FileNotFoundError(f"URDF file not found: {name} or {urdf_path}")
+
+        project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
+        data_urdf = os.path.join(project_root, 'data', 'urdf', name)
+        if os.path.exists(data_urdf):
+            return data_urdf
+        raise FileNotFoundError(f"URDF file not found: {name} in {data_urdf}")
 
     def _parse_urdf(self, path):
         root = ET.parse(path).getroot()
@@ -73,55 +71,3 @@ class RobotVisualisation:
         self._arc_line.set_data(np.cos(arc), np.sin(arc))
         self._angle_line.set_data([0, np.cos(theta)], [0, np.sin(theta)])
         self._angle_text.set_text(f"{q[-1]:.1f}°")
-
-if __name__ == "__main__":
-    from kinematics import RobotKinematics
-    from tracker import HandTracker
-
-    urdf_name = "so100"
-    # Resolve the URDF path relative to this file
-    urdf_path = os.path.join(os.path.dirname(__file__), 'urdf', f'{urdf_name}.urdf')
-    kin = RobotKinematics(urdf_path)
-    viz = RobotVisualisation(kin, urdf_name)
-
-    fig = plt.figure()
-    ax = fig.add_subplot(111, projection='3d')
-    q = np.zeros(6)
-
-    for t in range(100):
-        q[:5] = 0.5 * np.sin(np.linspace(0, np.pi * 2, 5) + 0.1 * t)
-        q[5] = 45 + 30 * np.sin(0.1 * t)  # gripper in degrees
-        viz.draw(ax, q)
-        plt.pause(0.05)
-
-    def main_v1():
-        # Draw the robot in a static pose (e.g., zero position)
-        static_q = np.zeros(6)
-        static_q[5] = 45 # open gripper
-        viz.draw(ax, static_q)
-        
-        # Initialize an empty line for the trajectory
-        trajectory_line, = ax.plot([], [], [], 'b-', label='End-Effector Trajectory')
-        ax.legend()
-        
-        trajectory_points = []
-        end_effector_name = viz.link_names[5]  # Assuming 6th link is end-effector
-
-        for t in range(200):
-            # Virtual joint movement to calculate trajectory
-            q_joints = 45 * np.sin(np.linspace(0, np.pi * 2, 5) + 0.1 * t)
-            q_rad = np.radians(q_joints)
-            ee_pos = kin.fk(q_rad, end_effector_name)[:3, 3]
-            trajectory_points.append(ee_pos)
-            
-            # Update the trajectory line data
-            traj_array = np.array(trajectory_points)
-            trajectory_line.set_data(traj_array[:, 0], traj_array[:, 1])
-            trajectory_line.set_3d_properties(traj_array[:, 2])
-            
-            plt.pause(0.1)
-
-        plt.show() # Keep the window open after the loop
-
-    main_v1()
-        
