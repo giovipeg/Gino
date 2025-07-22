@@ -2,7 +2,11 @@ import cv2
 import numpy as np
 import time
 import subprocess
-import matplotlib.pyplot as plt
+import os
+import sys
+
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '.')))
+import visualization_utils as viz
 
 def get_current_setting(ctrl):
     result = subprocess.run(['v4l2-ctl', '--get-ctrl', ctrl], capture_output=True, text=True)
@@ -47,24 +51,9 @@ cube_marker_positions = {
 }
 
 # 3D plot setup
-if VISUALIZE_POSITION or VISUALIZE_POSE:
-    plt.ion()
-
-if VISUALIZE_POSITION:
-    fig_pos = plt.figure(figsize=(8, 6))
-    ax_pos = fig_pos.add_subplot(111, projection='3d')
-    ax_pos.set_xlabel('X (m)')
-    ax_pos.set_ylabel('Y (m)')
-    ax_pos.set_zlabel('Z (m)')
-    ax_pos.set_title('Cube Center Position')
-
-if VISUALIZE_POSE:
-    fig_pose = plt.figure(figsize=(8, 6))
-    ax_pose = fig_pose.add_subplot(111, projection='3d')
-    ax_pose.set_xlabel('X (m)')
-    ax_pose.set_ylabel('Y (m)')
-    ax_pose.set_zlabel('Z (m)')
-    ax_pose.set_title('Cube Orientation & Individual Markers')
+fig_pos, ax_pos, fig_pose, ax_pose = viz.setup_visualization(
+    VISUALIZE_POSITION, VISUALIZE_POSE
+)
 
 
 cube_positions = []
@@ -113,53 +102,6 @@ def estimate_cube_pose(detected_markers, marker_corners, camera_matrix, dist_coe
     if success:
         return rvec, tvec
     return None, None
-
-def draw_cube_wireframe(ax, center, rotation_matrix, size=CUBE_SIZE):
-    """
-    Draw a wireframe cube at the given center with rotation
-    """
-    # Define cube vertices relative to center
-    vertices = np.array([
-        [-size/2, -size/2, -size/2],
-        [size/2, -size/2, -size/2],
-        [size/2, size/2, -size/2],
-        [-size/2, size/2, -size/2],
-        [-size/2, -size/2, size/2],
-        [size/2, -size/2, size/2],
-        [size/2, size/2, size/2],
-        [-size/2, size/2, size/2]
-    ])
-    
-    # Rotate and translate vertices
-    rotated_vertices = np.dot(vertices, rotation_matrix.T) + center
-    
-    # Define edges
-    edges = [
-        [0, 1], [1, 2], [2, 3], [3, 0],  # bottom face
-        [4, 5], [5, 6], [6, 7], [7, 4],  # top face
-        [0, 4], [1, 5], [2, 6], [3, 7]   # vertical edges
-    ]
-    
-    # Draw edges
-    for edge in edges:
-        points = rotated_vertices[edge]
-        ax.plot3D(*points.T, 'b-', alpha=0.6)
-    
-    return rotated_vertices
-
-def visualize_cube_markers(ax, center, rotation_matrix, detected_markers):
-    """
-    Visualize detected markers on the cube
-    """
-    for marker_id in detected_markers:
-        if marker_id in cube_marker_positions:
-            # Get marker position in cube local coordinates
-            local_pos = cube_marker_positions[marker_id]
-            # Transform to world coordinates
-            world_pos = np.dot(local_pos, rotation_matrix.T) + center
-            ax.scatter(*world_pos, s=100, c='red', alpha=0.8)
-            ax.text(world_pos[0], world_pos[1], world_pos[2], 
-                   f'ID:{marker_id}', fontsize=8)
 
 # Main script logic for video file
 start_script_time = time.time()
@@ -306,37 +248,13 @@ while True:
 
         # Unified visualization and drawing
         if smoothed_position is not None and rotation_matrix_plot is not None:
-            if VISUALIZE_POSITION:
-                ax_pos.clear()
-                ax_pos.set_xlabel('X (m)')
-                ax_pos.set_ylabel('Y (m)')
-                ax_pos.set_zlabel('Z (m)')
-                ax_pos.set_title('Cube Center Position Trajectory')
-                if len(cube_positions) > 1:
-                    pos_arr = np.array(cube_positions)
-                    ax_pos.plot(pos_arr[:, 0], pos_arr[:, 1], pos_arr[:, 2], 'b.-', alpha=0.7)
-                ax_pos.scatter(smoothed_position[0], smoothed_position[1], 
-                           smoothed_position[2], c='r', s=100, label='Current Center')
-                ax_pos.legend()
-
-            if VISUALIZE_POSE:
-                ax_pose.clear()
-                ax_pose.set_xlabel('X (m)')
-                ax_pose.set_ylabel('Y (m)')
-                ax_pose.set_zlabel('Z (m)')
-                ax_pose.set_title('Cube Orientation & Detected Markers')
-                draw_cube_wireframe(ax_pose, smoothed_position, rotation_matrix_plot)
-                visualize_cube_markers(ax_pose, smoothed_position, 
-                                     rotation_matrix_plot, cube_markers)
-                center = smoothed_position
-                limit = 0.1
-                ax_pose.set_xlim([center[0]-limit, center[0]+limit])
-                ax_pose.set_ylim([center[1]-limit, center[1]+limit])
-                ax_pose.set_zlim([center[2]-limit, center[2]+limit])
-
-            if VISUALIZE_POSITION or VISUALIZE_POSE:
-                plt.draw()
-                plt.pause(0.001)
+            viz.update_visualization(
+                VISUALIZE_POSITION, VISUALIZE_POSE,
+                ax_pos, ax_pose,
+                cube_positions, smoothed_position,
+                rotation_matrix_plot, cube_markers,
+                cube_marker_positions, CUBE_SIZE
+            )
 
         if rvec_to_draw is not None and tvec_to_draw is not None:
             cv2.drawFrameAxes(image, camera_matrix, dist_coeffs, 
@@ -361,8 +279,7 @@ while True:
 cap.release()
 cv2.destroyAllWindows()
 if VISUALIZE_POSITION or VISUALIZE_POSE:
-    plt.ioff()
-    plt.show()
+    viz.close_visualization()
 
 total_exec_time = time.time() - start_script_time
 print(f"Tracking completed. Total frames processed: {frame_count}")
