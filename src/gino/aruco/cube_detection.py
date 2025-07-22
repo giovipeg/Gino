@@ -137,9 +137,6 @@ class ArucoCubeTracker:
                 # For visualization, transform coordinates
                 tvec_plot = np.array([-avg_center[0], -avg_center[2], -avg_center[1]])
                 rotation_matrix_plot = np.array([[-1, 0, 0], [0, 0, -1], [0, -1, 0]]) @ R @ np.array([[-1, 0, 0], [0, 0, -1], [0, -1, 0]]).T
-                # Assign rvec and tvec for consistency
-                rvec = None
-                tvec = None
 
             elif len(cube_markers) >= 3:
                 # Get indices of cube markers

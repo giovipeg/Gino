@@ -11,7 +11,7 @@ import src.gino.aruco.visualization_utils as viz
 from src.gino.aruco.cube_detection import ArucoCubeTracker
 
 # Visualization toggles
-VISUALIZE_POSITION = True  # Set to True to visualize position
+VISUALIZE_POSITION = False  # Set to True to visualize position
 VISUALIZE_POSE = False      # Set to True to visualize pose
 
 # 3D plot setup
@@ -28,7 +28,7 @@ window_size = 5
 
 # Main script logic for video file
 start_script_time = time.time()
-cap = cv2.VideoCapture('data/vid3.avi')
+cap = cv2.VideoCapture('data/vid2.avi')
 
 frame_count = 0
 key = None
