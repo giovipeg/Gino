@@ -37,24 +37,22 @@ class RobotKinematics:
         print(f"Workspace center: {self.workspace_center}, radius: {self.workspace_radius}")
 
     def _calculate_workspace(self):
-        # --- Workspace calculation (sum of link lengths) ---
-        # The workspace radius is the sum of the distances between consecutive link origins
-        # from shoulder_link to gripper_link in the neutral configuration.
-        link_chain = [
-            "shoulder_link",
-            "humerus_link",
-            "forearm_link",
-            "wrist_link",
-            "gripper_link",
-        ]
-        q_neutral = pin.neutral(self.model)
-        positions = []
-        for link in link_chain:
-            pos = self.fk(q_neutral, link)[:3, 3]
-            positions.append(pos)
-        # Sum the Euclidean distances between consecutive link origins
-        radius = sum(np.linalg.norm(positions[i+1] - positions[i]) for i in range(len(positions)-1))
-        center = positions[0]  # shoulder_link origin
+        # --- Improved workspace calculation (sum of link lengths from URDF, excluding last link) ---
+        # The workspace center is the base_link origin.
+        # The workspace radius is the sum of the Euclidean distances of the joint origins (from parent to child), excluding the last joint.
+        import xml.etree.ElementTree as ET
+        urdf_path = self.urdf_path
+        root = ET.parse(urdf_path).getroot()
+        base_link_origin = np.zeros(3)
+        joints = root.findall('joint')
+        radius = 0.0
+        # Exclude the last joint
+        for joint in joints[:-1]:
+            origin_elem = joint.find('origin')
+            if origin_elem is not None and 'xyz' in origin_elem.attrib:
+                xyz = np.fromstring(origin_elem.attrib['xyz'], sep=' ')
+                radius += np.linalg.norm(xyz)
+        center = base_link_origin
         return center, radius
 
     # ---------- Forward kinematics ----------

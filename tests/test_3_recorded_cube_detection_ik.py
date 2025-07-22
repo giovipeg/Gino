@@ -19,7 +19,7 @@ urdf_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'urdf', f'{urd
 urdf_path = os.path.abspath(urdf_path)
 kin = RobotKinematics(urdf_path)
 robot_viz = RobotVisualisation(kin, urdf_name)
-WORKSPACE_OFFSET = 0.1
+WORKSPACE_OFFSET = 0.06
 
 # --- Visualization setup ---
 fig = plt.figure()
