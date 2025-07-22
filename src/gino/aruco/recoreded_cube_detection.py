@@ -4,9 +4,14 @@ import time
 import subprocess
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
+import os
+import sys
+
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+import visualization_utils as viz
 
 # Visualization toggle
-VISUALIZE = False
+VISUALIZE = True
 
 # Camera calibration parameters
 calib = np.load('data/camera_calib.npz')
@@ -31,20 +36,9 @@ cube_marker_positions = {
 
 # 3D plot setup
 if VISUALIZE:
-    plt.ion()
-    fig = plt.figure(figsize=(12, 8))
-    ax1 = fig.add_subplot(121, projection='3d')
-    ax2 = fig.add_subplot(122, projection='3d')
-
-    ax1.set_xlabel('X (m)')
-    ax1.set_ylabel('Y (m)')
-    ax1.set_zlabel('Z (m)')
-    ax1.set_title('Cube Center Position')
-
-    ax2.set_xlabel('X (m)')
-    ax2.set_ylabel('Y (m)')
-    ax2.set_zlabel('Z (m)')
-    ax2.set_title('Cube Orientation & Individual Markers')
+    fig_pos, ax_pos, fig_pose, ax_pose = viz.setup_visualization(True, True)
+else:
+    fig_pos = ax_pos = fig_pose = ax_pose = None
 
 cube_positions = []
 cube_orientations = []
@@ -93,53 +87,6 @@ def estimate_cube_pose(detected_markers, marker_corners, camera_matrix, dist_coe
         return rvec, tvec
     return None, None
 
-def draw_cube_wireframe(ax, center, rotation_matrix, size=CUBE_SIZE):
-    """
-    Draw a wireframe cube at the given center with rotation
-    """
-    # Define cube vertices relative to center
-    vertices = np.array([
-        [-size/2, -size/2, -size/2],
-        [size/2, -size/2, -size/2],
-        [size/2, size/2, -size/2],
-        [-size/2, size/2, -size/2],
-        [-size/2, -size/2, size/2],
-        [size/2, -size/2, size/2],
-        [size/2, size/2, size/2],
-        [-size/2, size/2, size/2]
-    ])
-    
-    # Rotate and translate vertices
-    rotated_vertices = np.dot(vertices, rotation_matrix.T) + center
-    
-    # Define edges
-    edges = [
-        [0, 1], [1, 2], [2, 3], [3, 0],  # bottom face
-        [4, 5], [5, 6], [6, 7], [7, 4],  # top face
-        [0, 4], [1, 5], [2, 6], [3, 7]   # vertical edges
-    ]
-    
-    # Draw edges
-    for edge in edges:
-        points = rotated_vertices[edge]
-        ax.plot3D(*points.T, 'b-', alpha=0.6)
-    
-    return rotated_vertices
-
-def visualize_cube_markers(ax, center, rotation_matrix, detected_markers):
-    """
-    Visualize detected markers on the cube
-    """
-    for marker_id in detected_markers:
-        if marker_id in cube_marker_positions:
-            # Get marker position in cube local coordinates
-            local_pos = cube_marker_positions[marker_id]
-            # Transform to world coordinates
-            world_pos = np.dot(local_pos, rotation_matrix.T) + center
-            ax.scatter(*world_pos, s=100, c='red', alpha=0.8)
-            ax.text(world_pos[0], world_pos[1], world_pos[2], 
-                   f'ID:{marker_id}', fontsize=8)
-
 # Main script logic for video file
 start_script_time = time.time()
 cap = cv2.VideoCapture('data/vid2.avi')
@@ -185,45 +132,7 @@ while True:
             # For visualization, transform coordinates
             tvec_plot = np.array([-cube_center[0], -cube_center[2], -cube_center[1]])
             rotation_matrix_plot = np.array([[-1, 0, 0], [0, 0, -1], [0, -1, 0]]) @ R @ np.array([[-1, 0, 0], [0, 0, -1], [0, -1, 0]]).T
-            # Apply moving average filter
-            if len(cube_positions) > 0:
-                smoothed_position = moving_average_filter(
-                    cube_positions + [tvec_plot], window_size)
-            else:
-                smoothed_position = tvec_plot
-            cube_positions.append(smoothed_position)
-            cube_orientations.append(rotation_matrix_plot)
-            # Update plots
-            if VISUALIZE:
-                ax1.clear()
-                ax1.set_xlabel('X (m)')
-                ax1.set_ylabel('Y (m)')
-                ax1.set_zlabel('Z (m)')
-                ax1.set_title('Cube Center Position Trajectory')
-                if len(cube_positions) > 1:
-                    pos_arr = np.array(cube_positions)
-                    ax1.plot(pos_arr[:, 0], pos_arr[:, 1], pos_arr[:, 2], 'b.-', alpha=0.7)
-                ax1.scatter(smoothed_position[0], smoothed_position[1], 
-                           smoothed_position[2], c='r', s=100, label='Current Center')
-                ax1.legend()
-                ax2.clear()
-                ax2.set_xlabel('X (m)')
-                ax2.set_ylabel('Y (m)')
-                ax2.set_zlabel('Z (m)')
-                ax2.set_title('Cube Orientation & Detected Markers')
-                draw_cube_wireframe(ax2, smoothed_position, rotation_matrix_plot)
-                visualize_cube_markers(ax2, smoothed_position, 
-                                     rotation_matrix_plot, cube_markers)
-                center = smoothed_position
-                limit = 0.1
-                ax2.set_xlim([center[0]-limit, center[0]+limit])
-                ax2.set_ylim([center[1]-limit, center[1]+limit])
-                ax2.set_zlim([center[2]-limit, center[2]+limit])
-                plt.draw()
-                plt.pause(0.001)
-            # Draw cube axes on image
-            cv2.drawFrameAxes(image, camera_matrix, dist_coeffs, 
-                            rvec, tvec, CUBE_SIZE)
+
         elif len(cube_markers) == 2:
             # Estimate pose for each marker, compute cube center from each, average centers
             centers = []
@@ -248,52 +157,7 @@ while True:
             # For visualization, transform coordinates
             tvec_plot = np.array([-avg_center[0], -avg_center[2], -avg_center[1]])
             rotation_matrix_plot = np.array([[-1, 0, 0], [0, 0, -1], [0, -1, 0]]) @ R @ np.array([[-1, 0, 0], [0, 0, -1], [0, -1, 0]]).T
-            # Apply moving average filter
-            if len(cube_positions) > 0:
-                smoothed_position = moving_average_filter(
-                    cube_positions + [tvec_plot], window_size)
-            else:
-                smoothed_position = tvec_plot
-            cube_positions.append(smoothed_position)
-            cube_orientations.append(rotation_matrix_plot)
-            # Update plots
-            if VISUALIZE:
-                ax1.clear()
-                ax1.set_xlabel('X (m)')
-                ax1.set_ylabel('Y (m)')
-                ax1.set_zlabel('Z (m)')
-                ax1.set_title('Cube Center Position Trajectory')
-                if len(cube_positions) > 1:
-                    pos_arr = np.array(cube_positions)
-                    ax1.plot(pos_arr[:, 0], pos_arr[:, 1], pos_arr[:, 2], 'b.-', alpha=0.7)
-                ax1.scatter(smoothed_position[0], smoothed_position[1], 
-                           smoothed_position[2], c='r', s=100, label='Current Center')
-                ax1.legend()
-                ax2.clear()
-                ax2.set_xlabel('X (m)')
-                ax2.set_ylabel('Y (m)')
-                ax2.set_zlabel('Z (m)')
-                ax2.set_title('Cube Orientation & Detected Markers')
-                draw_cube_wireframe(ax2, smoothed_position, rotation_matrix_plot)
-                visualize_cube_markers(ax2, smoothed_position, 
-                                     rotation_matrix_plot, cube_markers)
-                center = smoothed_position
-                limit = 0.1
-                ax2.set_xlim([center[0]-limit, center[0]+limit])
-                ax2.set_ylim([center[1]-limit, center[1]+limit])
-                ax2.set_zlim([center[2]-limit, center[2]+limit])
-                plt.draw()
-                plt.pause(0.001)
-            # Draw cube axes on image (use the first marker's pose)
-            idx = np.where(detected_ids == cube_markers[0])[0][0]
-            marker_corners_single = corners[idx]
-            rvecs, tvecs, _ = cv2.aruco.estimatePoseSingleMarkers(
-                marker_corners_single, MARKER_SIZE, camera_matrix, dist_coeffs
-            )
-            rvec = rvecs[0][0]
-            tvec = tvecs[0][0]
-            cv2.drawFrameAxes(image, camera_matrix, dist_coeffs, 
-                            rvec, tvec, CUBE_SIZE)
+
         elif len(cube_markers) >= 3:
             # Get indices of cube markers
             cube_indices = [np.where(detected_ids == id)[0][0] for id in cube_markers]
@@ -329,42 +193,29 @@ while True:
                 rotation_matrix, _ = cv2.Rodrigues(rvec)
                 transform_matrix = np.array([[-1, 0, 0], [0, 0, -1], [0, -1, 0]])
                 rotation_matrix_plot = transform_matrix @ rotation_matrix @ transform_matrix.T
-                if len(cube_positions) > 0:
-                    smoothed_position = moving_average_filter(
-                        cube_positions + [tvec_plot], window_size)
-                else:
-                    smoothed_position = tvec_plot
-                cube_positions.append(smoothed_position)
-                cube_orientations.append(rotation_matrix_plot)
-                if VISUALIZE:
-                    ax1.clear()
-                    ax1.set_xlabel('X (m)')
-                    ax1.set_ylabel('Y (m)')
-                    ax1.set_zlabel('Z (m)')
-                    ax1.set_title('Cube Center Position Trajectory')
-                    if len(cube_positions) > 1:
-                        pos_arr = np.array(cube_positions)
-                        ax1.plot(pos_arr[:, 0], pos_arr[:, 1], pos_arr[:, 2], 'b.-', alpha=0.7)
-                    ax1.scatter(smoothed_position[0], smoothed_position[1], 
-                               smoothed_position[2], c='r', s=100, label='Current Center')
-                    ax1.legend()
-                    ax2.clear()
-                    ax2.set_xlabel('X (m)')
-                    ax2.set_ylabel('Y (m)')
-                    ax2.set_zlabel('Z (m)')
-                    ax2.set_title('Cube Orientation & Detected Markers')
-                    draw_cube_wireframe(ax2, smoothed_position, rotation_matrix_plot)
-                    visualize_cube_markers(ax2, smoothed_position, 
-                                         rotation_matrix_plot, cube_markers)
-                    center = smoothed_position
-                    limit = 0.1
-                    ax2.set_xlim([center[0]-limit, center[0]+limit])
-                    ax2.set_ylim([center[1]-limit, center[1]+limit])
-                    ax2.set_zlim([center[2]-limit, center[2]+limit])
-                    plt.draw()
-                    plt.pause(0.001)
-                cv2.drawFrameAxes(image, camera_matrix, dist_coeffs, 
-                                rvec, tvec, CUBE_SIZE)
+        
+        if rvec is not None and tvec is not None:
+            # Apply moving average filter
+            if len(cube_positions) > 0:
+                smoothed_position = moving_average_filter(
+                    cube_positions + [tvec_plot], window_size)
+            else:
+                smoothed_position = tvec_plot
+            cube_positions.append(smoothed_position)
+            cube_orientations.append(rotation_matrix_plot)
+            # Update plots
+            if VISUALIZE:
+                viz.update_visualization(
+                    True, True,
+                    ax_pos, ax_pose,
+                    cube_positions, smoothed_position,
+                    rotation_matrix_plot, cube_markers,
+                    cube_marker_positions, CUBE_SIZE
+                )
+            # Draw cube axes on image
+            cv2.drawFrameAxes(image, camera_matrix, dist_coeffs, 
+                            rvec, tvec, CUBE_SIZE)
+
         # Draw all detected markers
         cv2.aruco.drawDetectedMarkers(image, corners, ids)
         # Add text overlay with detection info
@@ -385,7 +236,7 @@ cap.release()
 cv2.destroyAllWindows()
 plt.ioff()
 if VISUALIZE:
-    plt.show()
+    viz.close_visualization()
 
 total_exec_time = time.time() - start_script_time
 print(f"Tracking completed. Total frames processed: {frame_count}")
