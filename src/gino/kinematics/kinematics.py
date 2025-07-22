@@ -33,6 +33,29 @@ class RobotKinematics:
         self.data = self.model.createData()
         self.frame_id = self.model.getFrameId(frame_name)
         self.frame_name = frame_name
+        self.workspace_center, self.workspace_radius = self._calculate_workspace()
+        print(f"Workspace center: {self.workspace_center}, radius: {self.workspace_radius}")
+
+    def _calculate_workspace(self):
+        # --- Workspace calculation (sum of link lengths) ---
+        # The workspace radius is the sum of the distances between consecutive link origins
+        # from shoulder_link to gripper_link in the neutral configuration.
+        link_chain = [
+            "shoulder_link",
+            "humerus_link",
+            "forearm_link",
+            "wrist_link",
+            "gripper_link",
+        ]
+        q_neutral = pin.neutral(self.model)
+        positions = []
+        for link in link_chain:
+            pos = self.fk(q_neutral, link)[:3, 3]
+            positions.append(pos)
+        # Sum the Euclidean distances between consecutive link origins
+        radius = sum(np.linalg.norm(positions[i+1] - positions[i]) for i in range(len(positions)-1))
+        center = positions[0]  # shoulder_link origin
+        return center, radius
 
     # ---------- Forward kinematics ----------
     def fk(self, q, frame: str | None = None):
@@ -88,3 +111,8 @@ class RobotKinematics:
             q = pin.normalize(self.model, q)
 
         return q  # Return best effort even if not converged
+
+    def is_in_workspace(self, xyz, offset):
+        """Check if a 3D point is inside the robot's spherical workspace."""
+        xyz = np.asarray(xyz)
+        return np.linalg.norm(xyz - self.workspace_center) <= (self.workspace_radius - offset)
