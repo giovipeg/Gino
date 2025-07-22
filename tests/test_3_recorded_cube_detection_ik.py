@@ -25,6 +25,15 @@ fig = plt.figure()
 ax = fig.add_subplot(111, projection='3d')
 plt.ion()
 plt.show()
+# Initialize empty plot lines for desired and actual trajectories
+# These will be updated in the loop
+desired_traj_line, = ax.plot([], [], [], 'g--', label='Desired Trajectory')
+actual_traj_line, = ax.plot([], [], [], 'b-', label='Actual Trajectory')
+ax.legend()
+ax.set_xlim([0, 0.4])
+ax.set_ylim([-0.25, 0.25])
+ax.set_zlim([0, 0.3])
+ax.set_title("Robot Arm Following Detected Cube Trajectory (IK)")
 
 # Fixed orientation for the end-effector (pointing downwards)
 default_rot = R.from_euler("ZYX", [0, 90, 0], degrees=True).as_matrix()
@@ -44,12 +53,6 @@ end_effector_name = robot_viz.link_names[5]  # 6th link is end-effector
 # Offset logic
 offset = None
 
-# --- Movement control variables ---
-move_active = False  # True when spacebar is held
-default_q = np.zeros(5)  # Default joint config
-reference_ee_position = None  # EE position at movement start
-reference_cube_position = None  # Cube position at movement start
-
 # Main script logic for video file
 start_script_time = time.time()
 #cap = cv2.VideoCapture('data/vid3.avi')
@@ -57,6 +60,14 @@ cap = cv2.VideoCapture(0)
 
 frame_count = 0
 key = None
+
+# --- New variables for relative movement logic ---
+move_key = ord(' ')  # Spacebar
+key_pressed = False
+prev_key_pressed = False
+reference_ee_position = None
+reference_cube_position = None
+
 while key != ord('q') and key != 27:
     start_time = time.time()
 
@@ -67,28 +78,37 @@ while key != ord('q') and key != 27:
 
     smoothed_position, rotation_matrix_plot, cube_markers = aruco.pose_estimation(image)
 
-    # --- Keyboard control: check if spacebar is pressed ---
+    # Check if move key is pressed
     key = cv2.waitKey(1) & 0xFF
-    move_active = (key == 32)  # 32 is spacebar
+    key_pressed = (key == move_key)
 
     if smoothed_position is not None:
-        if move_active:
-            if reference_ee_position is None:
-                # Store reference positions at the start of movement
-                q_init = q_guess.copy()  # Use current guess as initial config
-                reference_ee_position = kin.fk(q_init, end_effector_name)[:3, 3]
+        if offset is None:
+            # Get initial robot EE position
+            q_init = np.zeros(5)  # or your actual initial joint config
+            initial_ee_position = kin.fk(q_init, end_effector_name)[:3, 3]
+            offset = initial_ee_position - smoothed_position
+        # Apply offset to trajectory
+        adjusted_position = smoothed_position + offset
+        cube_positions.append(smoothed_position)
+        cube_orientations.append(rotation_matrix_plot)
+        desired_ee_points.append(adjusted_position)
+
+        # --- Only update robot when key is pressed ---
+        if key_pressed:
+            # On the first frame of key press, record reference positions
+            if not prev_key_pressed:
+                # Reference is current EE position and current cube position
+                reference_ee_position = kin.fk(q_guess, end_effector_name)[:3, 3].copy()
                 reference_cube_position = smoothed_position.copy()
-            # Compute offset from reference cube position
-            cube_offset = smoothed_position - reference_cube_position
-            adjusted_position = reference_ee_position + cube_offset
-            cube_positions.append(smoothed_position)
-            cube_orientations.append(rotation_matrix_plot)
-            desired_ee_points.append(adjusted_position)
+            # Compute relative movement of the cube
+            delta = smoothed_position - reference_cube_position
+            target_position = reference_ee_position + delta
 
             # Build target SE(3) pose for IK
             T = np.eye(4)
             T[:3, :3] = default_rot
-            T[:3, 3] = adjusted_position
+            T[:3, 3] = target_position
 
             # Solve IK for joint angles (in radians)
             q_sol = kin.ik(q_guess, T, frame=end_effector_name, max_iters=10)
@@ -106,29 +126,24 @@ while key != ord('q') and key != 27:
             # Draw robot
             robot_viz.draw(ax, q_vis)
 
-            # Draw desired and actual trajectory so far
+            # Draw desired and actual trajectory so far (update line data instead of plotting new lines)
             traj_array = np.array(desired_ee_points)
             actual_array = np.array(actual_ee_points)
             if len(traj_array) > 1:
-                ax.plot(traj_array[:, 0], traj_array[:, 1], traj_array[:, 2], 'g--', label='Desired Trajectory' if frame_count == 1 else "")
-                ax.plot(actual_array[:, 0], actual_array[:, 1], actual_array[:, 2], 'b-', label='Actual Trajectory' if frame_count == 1 else "")
-            if frame_count == 1:
-                ax.legend()
-
-            ax.set_xlim([0, 0.4])
-            ax.set_ylim([-0.25, 0.25])
-            ax.set_zlim([0, 0.3])
-            ax.set_title("Robot Arm Following Detected Cube Trajectory (IK)")
+                desired_traj_line.set_data(traj_array[:, 0], traj_array[:, 1])
+                desired_traj_line.set_3d_properties(traj_array[:, 2])
+                actual_traj_line.set_data(actual_array[:, 0], actual_array[:, 1])
+                actual_traj_line.set_3d_properties(actual_array[:, 2])
             plt.pause(0.001)
         else:
-            # If not moving, reset reference positions so next press starts a new relative motion
-            reference_ee_position = None
-            reference_cube_position = None
+            # If not moving, just keep showing the last robot pose and update the plot
+            plt.pause(0.001)
 
     cv2.imshow('ArUco Cube Tracking', image)
     # key = cv2.waitKey(1) & 0xFF  # Already handled above
 
     print(f"fps: {1 / (time.time() - start_time)}")
+    prev_key_pressed = key_pressed
 
 cap.release()
 cv2.destroyAllWindows()
