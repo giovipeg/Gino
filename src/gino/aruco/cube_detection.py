@@ -1,13 +1,6 @@
 import cv2
 import numpy as np
 import time
-import subprocess
-import os
-import sys
-import matplotlib.pyplot as plt
-
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-import visualization_utils as viz
 
 class ArucoCubeTracker:
     def __init__(self, calib_file='data/camera_calib.npz', 
@@ -39,6 +32,11 @@ class ArucoCubeTracker:
         self.parameters = cv2.aruco.DetectorParameters()
         self.detector = cv2.aruco.ArucoDetector(self.aruco_dict, self.parameters)
         
+        # Trajectory and smoothing attributes
+        self.cube_positions = []
+        self.cube_orientations = []
+        self.window_size = 5
+    
     @staticmethod
     def _moving_average_filter(data, window_size=5):
         if len(data) < window_size:
@@ -86,16 +84,17 @@ class ArucoCubeTracker:
     def pose_estimation(self, image):
         # Convert to grayscale
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        parameters = cv2.aruco.DetectorParameters()
         
         # Detect markers
         corners, ids, _ = self.detector.detectMarkers(gray)
         
+        rvec = None
+        tvec = None
+        rotation_matrix_plot = None
+        
         if ids is not None:
             detected_ids = ids.flatten()
             cube_markers = [int(id) for id in detected_ids if int(id) in self.cube_marker_ids]
-            
-            print(f"Frame {frame_count}: Detected cube markers: {cube_markers}")
             
             if len(cube_markers) == 1:
                 # Single marker pose estimation
@@ -138,6 +137,9 @@ class ArucoCubeTracker:
                 # For visualization, transform coordinates
                 tvec_plot = np.array([-avg_center[0], -avg_center[2], -avg_center[1]])
                 rotation_matrix_plot = np.array([[-1, 0, 0], [0, 0, -1], [0, -1, 0]]) @ R @ np.array([[-1, 0, 0], [0, 0, -1], [0, -1, 0]]).T
+                # Assign rvec and tvec for consistency
+                rvec = None
+                tvec = None
 
             elif len(cube_markers) >= 3:
                 # Get indices of cube markers
@@ -190,11 +192,13 @@ class ArucoCubeTracker:
                                 rvec, tvec, self.cube_size)
 
                 # Apply moving average filter
-                if len(cube_positions) > 0:
+                if len(self.cube_positions) > 0:
                     smoothed_position = self._moving_average_filter(
-                        cube_positions + [tvec_plot], window_size)
+                        self.cube_positions + [tvec_plot], self.window_size)
                 else:
                     smoothed_position = tvec_plot
+                self.cube_positions.append(smoothed_position)
+                self.cube_orientations.append(rotation_matrix_plot)
 
                 return smoothed_position, rotation_matrix_plot, cube_markers
             else:
@@ -202,69 +206,3 @@ class ArucoCubeTracker:
 
         else:
             return None, None, None
-
-if __name__ == "__main__":
-    # Visualization toggle
-    VISUALIZE = False
-
-    # 3D plot setup
-    if VISUALIZE:
-        fig_pos, ax_pos, fig_pose, ax_pose = viz.setup_visualization(True, True)
-    else:
-        fig_pos = ax_pos = fig_pose = ax_pose = None
-
-    aruco = ArucoCubeTracker()
-
-    cube_positions = []
-    cube_orientations = []
-    window_size = 5
-
-    # Main script logic for video file
-    start_script_time = time.time()
-    cap = cv2.VideoCapture('data/vid2.avi')
-
-    frame_count = 0
-    key = None
-    while key != ord('q') and key != 27:
-        start_time = time.time()
-
-        ret, image = cap.read()
-        if not ret:
-            break
-        
-        frame_count += 1
-
-        smoothed_position, rotation_matrix_plot, cube_markers = aruco.pose_estimation(image)
-        
-        if smoothed_position is not None:
-                cube_positions.append(smoothed_position)
-                cube_orientations.append(rotation_matrix_plot)
-
-                # Update plots
-                if VISUALIZE:
-                    viz.update_visualization(
-                        True, True,
-                        ax_pos, ax_pose,
-                        cube_positions, smoothed_position,
-                        rotation_matrix_plot, cube_markers,
-                        aruco.cube_marker_positions, aruco.cube_size
-                    )
-        cv2.imshow('ArUco Cube Tracking', image)
-        key = cv2.waitKey(1) & 0xFF
-
-        print(f"fps: {1 / (time.time() - start_time)}")
-
-    cap.release()
-    cv2.destroyAllWindows()
-    plt.ioff()
-    if VISUALIZE:
-        viz.close_visualization()
-
-    total_exec_time = time.time() - start_script_time
-    print(f"Tracking completed. Total frames processed: {frame_count}")
-    print(f"Cube positions recorded: {len(cube_positions)}")
-    print(f"Total execution time: {total_exec_time:.2f} seconds")
-
-    # Save trajectory to file
-    np.savez('data/cube_trajectory1.npz', positions=np.array(cube_positions), orientations=np.array(cube_orientations))
-    print("Cube trajectory saved to 'data/cube_trajectory1.npz'")
