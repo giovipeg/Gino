@@ -19,6 +19,7 @@ urdf_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'urdf', f'{urd
 urdf_path = os.path.abspath(urdf_path)
 kin = RobotKinematics(urdf_path)
 robot_viz = RobotVisualisation(kin, urdf_name)
+WORKSPACE_OFFSET = 0.1
 
 # --- Visualization setup ---
 fig = plt.figure()
@@ -110,31 +111,35 @@ while key != ord('q') and key != 27:
             T[:3, :3] = default_rot
             T[:3, 3] = target_position
 
-            # Solve IK for joint angles (in radians)
-            q_sol = kin.ik(q_guess, T, frame=end_effector_name, max_iters=10)
-            q_guess = q_sol.copy()  # Use solution as next guess for smoothness
+            # Prevent robot from moving outside workspace
+            if kin.is_in_workspace(target_position, WORKSPACE_OFFSET):
+                # Solve IK for joint angles (in radians)
+                q_sol = kin.ik(q_guess, T, frame=end_effector_name, max_iters=10)
+                q_guess = q_sol.copy()  # Use solution as next guess for smoothness
 
-            # Prepare joint vector for visualization (degrees + gripper)
-            q_vis = np.zeros(6)
-            q_vis[:5] = np.degrees(q_sol)
-            q_vis[5] = 45  # Fixed gripper open
+                # Prepare joint vector for visualization (degrees + gripper)
+                q_vis = np.zeros(6)
+                q_vis[:5] = np.degrees(q_sol)
+                q_vis[5] = 45  # Fixed gripper open
 
-            # Compute actual end-effector position from FK
-            ee_actual = kin.fk(q_sol, end_effector_name)[:3, 3]
-            actual_ee_points.append(ee_actual)
+                # Compute actual end-effector position from FK
+                ee_actual = kin.fk(q_sol, end_effector_name)[:3, 3]
+                actual_ee_points.append(ee_actual)
 
-            # Draw robot
-            robot_viz.draw(ax, q_vis)
+                # Draw robot
+                robot_viz.draw(ax, q_vis)
 
-            # Draw desired and actual trajectory so far (update line data instead of plotting new lines)
-            traj_array = np.array(desired_ee_points)
-            actual_array = np.array(actual_ee_points)
-            if len(traj_array) > 1:
-                desired_traj_line.set_data(traj_array[:, 0], traj_array[:, 1])
-                desired_traj_line.set_3d_properties(traj_array[:, 2])
-                actual_traj_line.set_data(actual_array[:, 0], actual_array[:, 1])
-                actual_traj_line.set_3d_properties(actual_array[:, 2])
-            plt.pause(0.001)
+                # Draw desired and actual trajectory so far (update line data instead of plotting new lines)
+                traj_array = np.array(desired_ee_points)
+                actual_array = np.array(actual_ee_points)
+                if len(traj_array) > 1:
+                    desired_traj_line.set_data(traj_array[:, 0], traj_array[:, 1])
+                    desired_traj_line.set_3d_properties(traj_array[:, 2])
+                    actual_traj_line.set_data(actual_array[:, 0], actual_array[:, 1])
+                    actual_traj_line.set_3d_properties(actual_array[:, 2])
+                plt.pause(0.001)
+            else:
+                print("Target position is outside the robot's workspace. Movement prevented.")
         else:
             # If not moving, just keep showing the last robot pose and update the plot
             plt.pause(0.001)
