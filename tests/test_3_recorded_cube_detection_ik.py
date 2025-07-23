@@ -48,7 +48,7 @@ desired_ee_points = []
 window_size = 5
 
 # Initial guess for joint angles (in radians)
-q_guess = np.zeros(5)
+q_guess = np.array([0.0, 3.14, 3.14, 0.0, 0.0])
 end_effector_name = robot_viz.link_names[5]  # 6th link is end-effector
 
 # Offset logic
