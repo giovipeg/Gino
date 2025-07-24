@@ -1,9 +1,10 @@
 # ruff: noqa: N806
 
 import os
-
 import numpy as np
+from scipy.spatial.transform import Rotation as R
 
+# Untouched
 try:
     import pinocchio as pin
 except ImportError:
@@ -24,6 +25,7 @@ class RobotKinematics:
         - q0        : initial guess for joint angles
         - target_T  : target pose
     """
+    # Untouched
     def __init__(self, urdf_path: str, frame_name: str = "gripper_link"):
         if not urdf_path.endswith(".urdf"):
             urdf_path = os.path.join(os.path.dirname(__file__), "urdf", f"{urdf_path}.urdf")
@@ -35,6 +37,7 @@ class RobotKinematics:
         self.frame_name = frame_name
         self.workspace_center, self.workspace_radius = self._calculate_workspace()
         print(f"Workspace center: {self.workspace_center}, radius: {self.workspace_radius}")
+        self.current_q = np.zeros(self.model.nq)  # Track current joint state
 
     def _calculate_workspace(self):
         # --- Improved workspace calculation (sum of link lengths from URDF, excluding last link) ---
@@ -55,6 +58,7 @@ class RobotKinematics:
         center = base_link_origin
         return center, radius
 
+    # Untouched
     # ---------- Forward kinematics ----------
     def fk(self, q, frame: str | None = None):
         """Return 4×4 SE(3) of desired frame (default gripper_tip)."""
@@ -65,6 +69,7 @@ class RobotKinematics:
             raise RuntimeError(f"Frame placement for frame id {fid} is not initialized. Ensure that forward kinematics has been computed correctly.")
         return self.data.oMf[fid].homogeneous
 
+    # Untouched
     # ---------- Jacobian ----------
     def jacobian(self, q, frame: str | None = None, reference_frame=None):
         """Return 6×N frame Jacobian."""
@@ -75,6 +80,7 @@ class RobotKinematics:
             reference_frame = pin.LOCAL_WORLD_ALIGNED
         return pin.getFrameJacobian(self.model, self.data, fid, reference_frame)
 
+    # Untouched
     # ---------- Inverse kinematics (Gauss–Newton with damping) ----------
     def ik(
         self,
@@ -99,7 +105,8 @@ class RobotKinematics:
             err6 = pin.log6(current_T.inverse() * target_SE3)
 
             if np.linalg.norm(err6) < tol:
-                return pin.normalize(self.model, q)
+                self.current_q = pin.normalize(self.model, q).copy()  # Update current joint state
+                return self.current_q
 
             J = self.jacobian(q, frame, pin.LOCAL)
             H = J.T @ J + damping * np.eye(J.shape[1])
@@ -109,6 +116,24 @@ class RobotKinematics:
             q = pin.normalize(self.model, q)
 
         return q  # Return best effort even if not converged
+    
+    def _sim_get_q_guess(self):
+        return self.current_q.copy()
+
+    def sim_get_ik_solution(self, rot, pos, frame):
+        rot_matrix = R.from_euler("ZYX", rot, degrees=True).as_matrix()
+
+        # Build target SE(3) pose
+        T = np.eye(4)
+        T[:3, :3] = rot_matrix
+        T[:3, 3] = pos
+
+        q_guess = self._sim_get_q_guess()
+
+        # Solve IK for joint angles (in radians)
+        q_sol = self.ik(q_guess, T, frame=frame, max_iters=10)
+        self.current_q = q_sol.copy()  # Update current joint state with best effort
+        return q_sol
 
     def is_in_workspace(self, xyz, offset):
         """Check if a 3D point is inside the robot's spherical workspace."""

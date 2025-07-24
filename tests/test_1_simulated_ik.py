@@ -23,7 +23,7 @@ traj_points = []
 actual_ee_points = []
 
 # Fixed orientation for the end-effector (pointing downwards)
-default_rot = R.from_euler("ZYX", [0, 90, 0], degrees=True).as_matrix()
+default_rot = [0, 90, 0]
 
 # Initial guess for joint angles (in radians)
 q_guess = np.zeros(5)
@@ -35,14 +35,7 @@ for t in range(num_steps):
     pos = center + radius * np.array([0, np.cos(theta), np.sin(theta)])
     traj_points.append(pos)
 
-    # Build target SE(3) pose
-    T = np.eye(4)
-    T[:3, :3] = default_rot
-    T[:3, 3] = pos
-
-    # Solve IK for joint angles (in radians)
-    q_sol = kin.ik(q_guess, T, frame=end_effector_name, max_iters=10)
-    q_guess = q_sol.copy()  # Use solution as next guess for smoothness
+    q_sol = kin.sim_get_ik_solution(default_rot, pos, end_effector_name)
 
     # Draw robot
     viz.draw(np.concatenate([q_sol, [np.radians(45)]]))
@@ -60,4 +53,4 @@ for t in range(num_steps):
     viz.ax.set_title("Robot Arm Following End-Effector Trajectory (IK)")
     plt.pause(0.02)
 
-plt.show() 
+plt.show()
