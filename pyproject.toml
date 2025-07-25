@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gino"
+version = "0.1.0"
+description = "Robot kinematics, vision, and control utilities."
+authors = [
+    { name = "Giovanni Pegoraro", email = "giovipegoraro@gmail.com" }
+]
+requires-python = ">=3.8"
+dependencies = [
+    "numpy",
+    "scipy",
+    "matplotlib",
+    "opencv-contrib-python"
+]
+
+[project.optional-dependencies]
+# Pinocchio is required for kinematics, but must be installed manually:
+# conda install -c conda-forge pinocchio
+kinematics = []
+
+[tool.setuptools]
+# Add package discovery if needed
