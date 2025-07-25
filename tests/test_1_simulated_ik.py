@@ -7,6 +7,7 @@ from scipy.spatial.transform import Rotation as R
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from src.gino.kinematics.kinematics import RobotKinematics
 from src.gino.kinematics.robot_visualization import RobotVisualisation
+from src.gino.kinematics.move_robot import MoveRobot
 
 # --- Robot model setup ---
 urdf_name = "so100"
@@ -14,6 +15,7 @@ urdf_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'urdf', f'{urd
 urdf_path = os.path.abspath(urdf_path)
 kin = RobotKinematics(urdf_path)
 viz = RobotVisualisation(kin, urdf_name, trajectory_viz=True)
+move = MoveRobot(kin, viz, use_sim_time=True)
 
 # --- Trajectory parameters ---
 num_steps = 300
@@ -21,6 +23,9 @@ radius = 0.12
 center = np.array([0.22, 0.0, 0.12])
 traj_points = []
 actual_ee_points = []
+
+start_q = np.array([0.0, 3.14, 3.14, 0.0, 0.0])  # Define your start joint configuration here
+move.current_q = start_q
 
 # Fixed orientation for the end-effector (pointing downwards)
 default_rot = [0, 90, 0]
@@ -35,7 +40,7 @@ for t in range(num_steps):
     pos = center + radius * np.array([0, np.cos(theta), np.sin(theta)])
     traj_points.append(pos)
 
-    q_sol = kin.sim_get_ik_solution(default_rot, pos, end_effector_name)
+    q_sol = move.get_ik_solution(default_rot, pos, end_effector_name)
 
     # Draw robot
     viz.draw(np.concatenate([q_sol, [np.radians(45)]]))

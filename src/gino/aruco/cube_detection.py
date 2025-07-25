@@ -96,8 +96,8 @@ class ArucoCubeTracker:
             detected_ids = ids.flatten()
             cube_markers = [int(id) for id in detected_ids if int(id) in self.cube_marker_ids]
             
+            # Single marker pose estimation
             if len(cube_markers) == 1:
-                # Single marker pose estimation
                 idx = np.where(detected_ids == cube_markers[0])[0][0]
                 marker_corners_single = corners[idx]
                 rvecs, tvecs, _ = cv2.aruco.estimatePoseSingleMarkers(
@@ -112,7 +112,7 @@ class ArucoCubeTracker:
                 # For visualization, transform coordinates
                 tvec_plot = np.array([-cube_center[0], -cube_center[2], -cube_center[1]])
                 rotation_matrix_plot = np.array([[-1, 0, 0], [0, 0, -1], [0, -1, 0]]) @ R @ np.array([[-1, 0, 0], [0, 0, -1], [0, -1, 0]]).T
-
+            # 2 markers pose estimation
             elif len(cube_markers) == 2:
                 # Estimate pose for each marker, compute cube center from each, average centers
                 centers = []
@@ -137,7 +137,7 @@ class ArucoCubeTracker:
                 # For visualization, transform coordinates
                 tvec_plot = np.array([-avg_center[0], -avg_center[2], -avg_center[1]])
                 rotation_matrix_plot = np.array([[-1, 0, 0], [0, 0, -1], [0, -1, 0]]) @ R @ np.array([[-1, 0, 0], [0, 0, -1], [0, -1, 0]]).T
-
+            # 3+ markers pose estimation
             elif len(cube_markers) >= 3:
                 # Get indices of cube markers
                 cube_indices = [np.where(detected_ids == id)[0][0] for id in cube_markers]

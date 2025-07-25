@@ -37,7 +37,6 @@ class RobotKinematics:
         self.frame_name = frame_name
         self.workspace_center, self.workspace_radius = self._calculate_workspace()
         print(f"Workspace center: {self.workspace_center}, radius: {self.workspace_radius}")
-        self.current_q = np.zeros(self.model.nq)  # Track current joint state
 
     def _calculate_workspace(self):
         # --- Improved workspace calculation (sum of link lengths from URDF, excluding last link) ---
@@ -116,24 +115,6 @@ class RobotKinematics:
             q = pin.normalize(self.model, q)
 
         return q  # Return best effort even if not converged
-    
-    def _sim_get_q_guess(self):
-        return self.current_q.copy()
-
-    def sim_get_ik_solution(self, rot, pos, frame):
-        rot_matrix = R.from_euler("ZYX", rot, degrees=True).as_matrix()
-
-        # Build target SE(3) pose
-        T = np.eye(4)
-        T[:3, :3] = rot_matrix
-        T[:3, 3] = pos
-
-        q_guess = self._sim_get_q_guess()
-
-        # Solve IK for joint angles (in radians)
-        q_sol = self.ik(q_guess, T, frame=frame, max_iters=10)
-        self.current_q = q_sol.copy()  # Update current joint state with best effort
-        return q_sol
 
     def is_in_workspace(self, xyz, offset):
         """Check if a 3D point is inside the robot's spherical workspace."""
