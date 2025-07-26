@@ -3,10 +3,20 @@ import os
 import sys
 import matplotlib.pyplot as plt
 
+from lerobot.robots.so101_follower import SO101FollowerConfig, SO101Follower
+
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from src.gino.kinematics.kinematics import RobotKinematics
 from src.gino.kinematics.robot_visualization import RobotVisualisation
 from src.gino.kinematics.move_robot import MoveRobot
+
+robot_config = SO101FollowerConfig(
+    port="/dev/ttyACM0",
+    id="toni",
+)
+
+robot = SO101Follower(robot_config)
+robot.connect()
 
 # --- Robot model setup ---
 urdf_name = "so100"
@@ -14,14 +24,15 @@ urdf_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'urdf', f'{urd
 urdf_path = os.path.abspath(urdf_path)
 kin = RobotKinematics(urdf_path)
 viz = RobotVisualisation(kin, urdf_name, trajectory_viz=True)
-move = MoveRobot(kin, robot=None, visualization=viz, use_sim_time=True)
+move = MoveRobot(kin, robot=robot, visualization=viz, use_sim_time=False)
 
 # --- Trajectory parameters ---
-num_steps = 100
-start_q = np.array([0.0, -1.5708, 1.5708, 0.0, 0.0])  # Define your start joint configuration here
-move.current_q = start_q
+num_steps = 500
 end_effector_name = viz.link_names[5]  # 6th link is end-effector
 
-target_point = np.array([0.15, 0.0, 0.15])  # Define your target point here
+target_point = np.array([0.20, 0.0, 0.15])  # Define your target point here
 
 move.move_to_target(target_point, end_effector_name, num_steps)
+
+input("Press ENTER  to exit.")
+robot.disconnect()

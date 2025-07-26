@@ -5,21 +5,49 @@ import os
 import matplotlib.pyplot as plt
 from scipy.spatial.transform import Rotation as R
 
+from lerobot.robots.so101_follower import SO101Follower
+
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '.')))
 from kinematics import RobotKinematics
 from robot_visualization import RobotVisualisation
 
+# TO-DO: add cross robot support
 class MoveRobot:
-    def __init__(self, kinematics: RobotKinematics, visualization: RobotVisualisation, use_sim_time: bool = True):
+    def __init__(self, kinematics: RobotKinematics, robot: SO101Follower = None, visualization: RobotVisualisation = None, use_sim_time: bool = True):
         self.kin = kinematics
+        self.robot = robot
         self.viz = visualization
         self.use_sim_time = use_sim_time
-        self.current_q = self._get_q_guess()
+        
+        # Initialize motor names mapping for action dictionary
+        self.motor_names = []
+        if not self.use_sim_time and self.robot is not None:
+            obs = self.robot.get_observation()
+            self.motor_names = [key.removesuffix('.pos') for key in obs.keys() if key.endswith('.pos')]
+        
+        self.current_q = self.get_q_guess()
 
-    def _get_q_guess(self):
+    def get_q_guess(self):
         if not self.use_sim_time:
-            # TO-DO: implement real robot q guess
-            return
+            # Get observation from real robot and extract joint positions
+            obs = self.robot.get_observation()
+            # Extract joint positions from observation dictionary
+            # Assuming joint positions are stored with keys like "motor_name.pos"
+            joint_positions = []
+            for key, value in obs.items():
+                if key.endswith('.pos'):
+                    joint_positions.append(value)
+            # Convert to radians if needed (assuming the values are in degrees)
+            joint_positions = np.array(joint_positions)
+            # Convert from degrees to radians
+            #joint_positions = np.radians(joint_positions)
+            
+            # We only need the first 5 joints for the arm kinematics
+            joint_positions = joint_positions[:self.kin.model.nq]
+
+            print(f"actual joint_positions: {joint_positions}")
+
+            return np.radians(joint_positions)
         else:
             try:
                 return self.current_q.copy()
@@ -33,7 +61,7 @@ class MoveRobot:
         Retrieve the current end effector orientation as Euler angles (ZYX, degrees).
         If frame is None, use the default frame from kinematics.
         """
-        q = self._get_q_guess()
+        q = self.get_q_guess()
         pose = self.kin.fk(q, frame)
         rot_matrix = pose[:3, :3]
         euler_angles = R.from_matrix(rot_matrix).as_euler("ZYX", degrees=True)
@@ -47,7 +75,7 @@ class MoveRobot:
         T[:3, :3] = rot_matrix
         T[:3, 3] = pos
 
-        q_guess = self._get_q_guess()
+        q_guess = self.get_q_guess()
 
         # Solve IK for joint angles (in radians)
         q_sol = self.kin.ik(q_guess, T, frame=frame, max_iters=10)
@@ -56,7 +84,9 @@ class MoveRobot:
 
     def move_to_target(self, target_pos, frame, num_steps):
         # Compute start point using forward kinematics
-        start_pose = self.kin.fk(self._get_q_guess(), frame)
+        q_guess = self.get_q_guess()
+        
+        start_pose = self.kin.fk(q_guess, frame)
         start_point = start_pose[:3, 3]
 
         # Generate linear trajectory from start to target
@@ -65,9 +95,18 @@ class MoveRobot:
         # TO-DO: use rot value at start of the movement
         for t, pos in enumerate(traj_points):
             q_sol = self.get_ik_solution(self._get_current_end_effector_orientation(frame), pos, frame)
+            print(q_sol)
 
             if not self.use_sim_time:
-                return
+                q_sol = np.degrees(q_sol)
+                print(f"q_sol: {q_sol}")
+                
+                # Create action dictionary with joint positions using pre-initialized motor names
+                action_dict = {}
+                for i, motor_name in enumerate(self.motor_names[:len(q_sol)]):
+                    action_dict[f"{motor_name}.pos"] = q_sol[i]
+                
+                self.robot.send_action(action_dict)
             else:
                 # Draw robot
                 self.viz.draw(np.concatenate([q_sol, [np.radians(45)]]))
