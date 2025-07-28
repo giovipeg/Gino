@@ -1,0 +1,1 @@
+- Added sync_write_steps() method to MotorBus class in lerobot.motors.motors_bus
