@@ -2,6 +2,7 @@ import os
 import numpy as np
 import sys
 import os
+import time
 import matplotlib.pyplot as plt
 from scipy.spatial.transform import Rotation as R
 
@@ -27,6 +28,15 @@ class MoveRobot:
         
         self.current_q = self.get_q_guess()
 
+        self.home_dict = {
+            'shoulder_pan': (self.robot.bus.calibration['shoulder_pan'].range_max + self.robot.bus.calibration['shoulder_pan'].range_min) / 2,
+            'shoulder_lift': self.robot.bus.calibration['shoulder_lift'].range_min,
+            'elbow_flex': self.robot.bus.calibration['elbow_flex'].range_max,
+            'wrist_flex': (self.robot.bus.calibration['wrist_flex'].range_max + self.robot.bus.calibration['wrist_flex'].range_min) / 2,
+            'wrist_roll': (self.robot.bus.calibration['wrist_roll'].range_max + self.robot.bus.calibration['wrist_roll'].range_min) / 2,
+            'gripper': self.robot.bus.calibration['gripper'].range_min
+        }
+
     def get_q_guess(self):
         if not self.use_sim_time:
             # Get observation from real robot and extract joint positions
@@ -44,8 +54,6 @@ class MoveRobot:
             
             # We only need the first 5 joints for the arm kinematics
             joint_positions = joint_positions[:self.kin.model.nq]
-
-            print(f"actual joint_positions: {joint_positions}")
 
             return np.radians(joint_positions)
         else:
@@ -81,6 +89,13 @@ class MoveRobot:
         q_sol = self.kin.ik(q_guess, T, frame=frame, max_iters=10)
         self.current_q = q_sol.copy()  # Update current joint state with best effort
         return q_sol
+    
+    def _create_action_dict(self, q_sol):
+        # Create action dictionary with joint positions using pre-initialized motor names
+        action_dict = {}
+        for i, motor_name in enumerate(self.motor_names[:len(q_sol)]):
+            action_dict[f"{motor_name}.pos"] = q_sol[i]
+        return action_dict
 
     def move_to_target(self, target_pos, frame, num_steps):
         # Compute start point using forward kinematics
@@ -95,17 +110,10 @@ class MoveRobot:
         # TO-DO: use rot value at start of the movement
         for t, pos in enumerate(traj_points):
             q_sol = self.get_ik_solution(self._get_current_end_effector_orientation(frame), pos, frame)
-            print(q_sol)
 
             if not self.use_sim_time:
                 q_sol = np.degrees(q_sol)
-                print(f"q_sol: {q_sol}")
-                
-                # Create action dictionary with joint positions using pre-initialized motor names
-                action_dict = {}
-                for i, motor_name in enumerate(self.motor_names[:len(q_sol)]):
-                    action_dict[f"{motor_name}.pos"] = q_sol[i]
-                
+                action_dict = self._create_action_dict(q_sol)
                 self.robot.send_action(action_dict)
             else:
                 # Draw robot
@@ -126,3 +134,36 @@ class MoveRobot:
 
         if self.use_sim_time:
             plt.show()
+
+    def home(self, num_steps=300):
+        """
+        Move robot to home1 position smoothly over specified number of steps.
+        
+        Args:
+            num_steps (int): Number of steps to transition from current to home position
+        """
+        if self.use_sim_time or self.robot is None:
+            print("Warning: home1 called in simulation mode or with no robot")
+            return
+        
+        # Get current motor positions using the highlighted read method
+        current_positions = {}
+        for motor_name in self.home_dict.keys():
+            current_positions[motor_name] = self.robot.bus.read("Present_Position", motor_name, normalize=False)
+        
+        # Create smooth trajectory for each motor
+        for step in range(num_steps):
+            # Calculate interpolation factor (0 to 1)
+            alpha = step / (num_steps - 1) if num_steps > 1 else 1.0
+            
+            # Interpolate between current and target positions
+            for motor_name in self.home_dict.keys():
+                current_pos = current_positions[motor_name]
+                target_pos = self.home_dict[motor_name]
+                interpolated_pos = current_pos + alpha * (target_pos - current_pos)
+                
+                # Send interpolated position to robot using the highlighted write method
+                self.robot.bus.write("Goal_Position", motor_name, int(interpolated_pos), normalize=False)
+            
+            # Small delay to allow robot to process the command
+            time.sleep(0.01)  # 100ms delay between steps

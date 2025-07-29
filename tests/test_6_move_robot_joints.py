@@ -1,7 +1,7 @@
 import numpy as np
 import os
 import sys
-import matplotlib.pyplot as plt
+import time
 
 from lerobot.robots.so101_follower import SO101FollowerConfig, SO101Follower
 
@@ -30,9 +30,12 @@ move = MoveRobot(kin, robot=robot, visualization=viz, use_sim_time=False)
 num_steps = 500
 end_effector_name = viz.link_names[5]  # 6th link is end-effector
 
-target_point = np.array([0.20, 0.0, 0.15])  # Define your target point here
+target_point = np.array([0.15, 0.0, 0.1])  # Define your target point here
 
 move.move_to_target(target_point, end_effector_name, num_steps)
 
-input("Press ENTER  to exit.")
+time.sleep(2)
+
+move.home()
+
 robot.disconnect()
