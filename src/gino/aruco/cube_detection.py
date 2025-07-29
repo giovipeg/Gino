@@ -96,24 +96,8 @@ class ArucoCubeTracker:
             detected_ids = ids.flatten()
             cube_markers = [int(id) for id in detected_ids if int(id) in self.cube_marker_ids]
             
-            # Single marker pose estimation
-            if len(cube_markers) == 1:
-                idx = np.where(detected_ids == cube_markers[0])[0][0]
-                marker_corners_single = corners[idx]
-                rvecs, tvecs, _ = cv2.aruco.estimatePoseSingleMarkers(
-                    marker_corners_single, self.marker_size, self.camera_matrix, self.dist_coeffs
-                )
-                rvec = rvecs[0][0]
-                tvec = tvecs[0][0]
-                marker_id = cube_markers[0]
-                offset = self.cube_marker_positions[marker_id]
-                R, _ = cv2.Rodrigues(rvec)
-                cube_center = tvec + R @ offset
-                # For visualization, transform coordinates
-                tvec_plot = np.array([-cube_center[0], -cube_center[2], -cube_center[1]])
-                rotation_matrix_plot = np.array([[-1, 0, 0], [0, 0, -1], [0, -1, 0]]) @ R @ np.array([[-1, 0, 0], [0, 0, -1], [0, -1, 0]]).T
-            # 2 markers pose estimation
-            elif len(cube_markers) == 2:
+            # Single / dual markers pose estimation
+            if len(cube_markers) <= 2:
                 # Estimate pose for each marker, compute cube center from each, average centers
                 centers = []
                 rotations = []
