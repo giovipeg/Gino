@@ -28,14 +28,15 @@ class MoveRobot:
         
         self.current_q = self.get_q_guess()
 
-        self.home_dict = {
-            'shoulder_pan': (self.robot.bus.calibration['shoulder_pan'].range_max + self.robot.bus.calibration['shoulder_pan'].range_min) / 2,
-            'shoulder_lift': self.robot.bus.calibration['shoulder_lift'].range_min,
-            'elbow_flex': self.robot.bus.calibration['elbow_flex'].range_max,
-            'wrist_flex': (self.robot.bus.calibration['wrist_flex'].range_max + self.robot.bus.calibration['wrist_flex'].range_min) / 2,
-            'wrist_roll': (self.robot.bus.calibration['wrist_roll'].range_max + self.robot.bus.calibration['wrist_roll'].range_min) / 2,
-            'gripper': self.robot.bus.calibration['gripper'].range_min
-        }
+        if not self.use_sim_time:
+            self.home_dict = {
+                'shoulder_pan': (self.robot.bus.calibration['shoulder_pan'].range_max + self.robot.bus.calibration['shoulder_pan'].range_min) / 2,
+                'shoulder_lift': self.robot.bus.calibration['shoulder_lift'].range_min,
+                'elbow_flex': self.robot.bus.calibration['elbow_flex'].range_max,
+                'wrist_flex': (self.robot.bus.calibration['wrist_flex'].range_max + self.robot.bus.calibration['wrist_flex'].range_min) / 2,
+                'wrist_roll': (self.robot.bus.calibration['wrist_roll'].range_max + self.robot.bus.calibration['wrist_roll'].range_min) / 2,
+                'gripper': self.robot.bus.calibration['gripper'].range_min
+            }
 
     def get_q_guess(self):
         if not self.use_sim_time:
@@ -75,6 +76,16 @@ class MoveRobot:
         euler_angles = R.from_matrix(rot_matrix).as_euler("ZYX", degrees=True)
         return euler_angles
 
+    def _get_current_end_effector_position(self, frame=None):
+        """
+        Retrieve the current end effector position (x, y, z).
+        If frame is None, use the default frame from kinematics.
+        """
+        q = self.get_q_guess()
+        pose = self.kin.fk(q, frame)
+        position = pose[:3, 3]
+        return position
+
     def get_ik_solution(self, rot, pos, frame):
         rot_matrix = R.from_euler("ZYX", rot, degrees=True).as_matrix()
 
@@ -97,7 +108,7 @@ class MoveRobot:
             action_dict[f"{motor_name}.pos"] = q_sol[i]
         return action_dict
 
-    def move_to_target(self, target_pos, frame, num_steps):
+    def move_to_target(self, target_pos, frame, num_steps=500):
         # Compute start point using forward kinematics
         q_guess = self.get_q_guess()
         
@@ -167,3 +178,59 @@ class MoveRobot:
             
             # Small delay to allow robot to process the command
             time.sleep(0.01)  # 100ms delay between steps
+
+    def compute_joints_from_pose(self, position: np.ndarray, rotation: np.ndarray, gripper_angle: float) -> np.ndarray:
+        """
+        Compute arm joint angles from a desired gripper position and orientation.
+        
+        Args:
+            position: 3-element array [x, y, z] representing the desired gripper position in meters
+            rotation: 3x3 rotation matrix representing the desired gripper orientation (roll, tilt)
+            gripper_angle: gripper opening angle in degrees (0-90)
+            initial_joints: 5-element array of initial joint angles in degrees for IK solver
+            
+        Returns:
+            6-element array in degrees: [j1, j2, j3, j4, j5, gripper_open]
+        """
+        if self.kin is None:
+            raise RuntimeError(
+                "robot_kin is not initialized. Pass a URDF to use this function."
+            )
+
+        # Create target transformation matrix from position and rotation
+        target_transform = np.eye(4)
+        target_transform[:3, :3] = rotation
+        target_transform[:3, 3] = position
+
+        # Convert initial joint angles to radians for IK solver
+        initial_joints_rad = self.get_q_guess()
+
+        """
+        # Apply safety constraints if available
+        if self.safe_range:
+            # Clip position to safe range
+            clipped_position = np.array([
+                np.clip(position[0], *self.safe_range["x"]),
+                np.clip(position[1], *self.safe_range["y"]),
+                np.clip(position[2], *self.safe_range["z"])
+            ])
+            target_transform[:3, 3] = clipped_position
+            
+            # Clip gripper angle to safe range
+            gripper_angle = np.clip(gripper_angle, *self.safe_range["g"])
+        """
+
+        # Solve inverse kinematics (returns radians)
+        try:
+            new_arm_joints_rad = self.kin.ik(
+                initial_joints_rad.copy(), target_transform, max_iters=6
+            )
+            
+            # Convert result back to degrees
+            new_arm_joints_deg = np.degrees(new_arm_joints_rad)
+            
+            return np.append(new_arm_joints_deg, gripper_angle).astype(np.float32)
+            
+        except Exception as e:
+            print(f"IK solver failed: {e}")
+            return None
