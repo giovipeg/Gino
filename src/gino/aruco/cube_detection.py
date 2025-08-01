@@ -1,10 +1,11 @@
 import cv2
 import numpy as np
 import time
+from scipy.spatial.transform import Rotation as R
 
 class ArucoCubeTracker:
     def __init__(self, calib_file='data/camera_calib.npz', 
-                 cube_size=0.04, marker_size=0.03):
+                 cube_size=0.04, marker_size=0.03, axis_length=0.08):
 
         # Camera calibration parameters
         calib = np.load(calib_file)
@@ -14,6 +15,7 @@ class ArucoCubeTracker:
         # Cube configuration
         self.cube_size = cube_size
         self.marker_size = marker_size
+        self.axis_length = axis_length
         self.cube_marker_ids = [0, 1, 2, 3, 4, 5]
 
         # Define 3D positions of markers on cube faces (in cube's local coordinate system -> as seen from camera)
@@ -27,6 +29,31 @@ class ArucoCubeTracker:
             5: np.array([0, 0, -self.cube_size / 2])   # Back face (-Z)
         }
 
+        # Define rotation transformations for each marker to align with cube coordinate system
+        # Cube's coordinate system is the same as marker 0's
+        # Each transformation aligns the marker's Z axis with the outward normal of its face
+        # Columns are the destination axes (x, y, z order)
+        # Rows are the source axes (x, y, z order)
+        # Multiply an axis by -1 to flip it
+        self.marker_rotations = {
+            0: np.eye(3),  # Front face: no rotation needed (Z already points outward)
+            5: np.array([[-1, 0, 0],  # Back face: 180° around Y
+                        [0, 1, 0],
+                        [0, 0, -1]]),
+            2: np.array([[0, -1, 0],    # x is cube's y flipped
+                        [0, 0, -1],      # y is cube's z flipped
+                        [1, 0, 0]]),   # z is cube's x
+            4: np.array([[0, -1, 0],    # x is cube's y
+                        [0, 0, 1],      # y is cube's z flipped
+                        [-1, 0, 0]]),    # z is cube's x flipped
+            3: np.array([[-1, 0, 0],    # x is cube's x flipped
+                        [0, 0, 1],      # y is cube's z flipped
+                        [0, 1, 0]]),   # z is cube's y flipped
+            1: np.array([[1, 0, 0],    # x is cube's x
+                        [0, 0, 1],    # y is cube's z flipped
+                        [0, -1, 0]])    # z is cube's y flipped
+        }
+
         # ArUco detector setup
         self.aruco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
         self.parameters = cv2.aruco.DetectorParameters()
@@ -36,50 +63,46 @@ class ArucoCubeTracker:
         self.cube_positions = []
         self.cube_orientations = []
         self.window_size = 5
-    
+
+        # 180° rotation about Y
+        self.R_flip = np.array([[-1, 0,  0],
+                                [ 0, 1,  0],
+                                [ 0, 0, -1]])
+
+        self.euler_blank = {marker_id: None for marker_id in self.cube_marker_ids}
+        self.prev_euler_angles = None
+
+        self.max_scarto = 0
+
     @staticmethod
     def _moving_average_filter(data, window_size=5):
         if len(data) < window_size:
             return data[-1] if data else np.array([0, 0, 0])
         arr = np.array(data[-window_size:])
         return np.mean(arr, axis=0)
-    
-    def _estimate_cube_pose(self, detected_markers, marker_corners, camera_matrix, dist_coeffs):
-        """
-        Estimate cube pose from multiple detected markers using PnP algorithm
-        """
-        if len(detected_markers) < 3:
-            return None, None
+
+    def euler_from_matrix(self, R_matrix):
+        # Convert rotation matrix to Euler angles (ZYX convention)
+        # This gives us: [yaw, pitch, roll] in degrees
+        yaw, roll, _ = R.from_matrix(R_matrix).as_euler("ZYX", degrees=True)
         
-        # Collect 3D-2D correspondences
-        object_points = []
-        image_points = []
+        # 180° rotation about Y to get pitch base value at 0 deg
+        # Orientation that a rear-facing camera would see
+        R_rear_view = self.R_flip @ R_matrix
+
+        # Convert to ZYX Euler angles (yaw, pitch, roll)
+        _, _, pitch = R.from_matrix(R_rear_view).as_euler("ZYX", degrees=True)
         
-        for i, marker_id in enumerate(detected_markers):
-            if marker_id in self.cube_marker_positions:
-                # Get 3D position of marker center on cube
-                marker_3d_pos = self.cube_marker_positions[marker_id]
-                object_points.append(marker_3d_pos)
-                
-                # Get 2D position of marker center in image
-                corners = marker_corners[i]
-                center_2d = np.mean(corners[0], axis=0)
-                image_points.append(center_2d)
-        
-        if len(object_points) < 3:
-            return None, None
-        
-        object_points = np.array(object_points, dtype=np.float32)
-        image_points = np.array(image_points, dtype=np.float32)
-        
-        # Solve PnP to get cube pose
-        success, rvec, tvec = cv2.solvePnP(
-            object_points, image_points, camera_matrix, dist_coeffs
-        )
-        
-        if success:
-            return rvec, tvec
-        return None, None
+        return roll, pitch, yaw
+
+    def _euler_diff_filter(self, euler_angles, marker_id, threshold=30):
+        if self.prev_euler_angles is None:
+            self.prev_euler_angles = euler_angles
+
+        # Convert tuples to numpy arrays for subtraction
+        euler_diff = np.array(euler_angles) - np.array(self.prev_euler_angles)
+
+        return True if max(np.abs(euler_diff)) < threshold else False
 
     def pose_estimation(self, image):
         # Convert to grayscale
@@ -96,67 +119,45 @@ class ArucoCubeTracker:
             detected_ids = ids.flatten()
             cube_markers = [int(id) for id in detected_ids if int(id) in self.cube_marker_ids]
             
-            # Single / dual markers pose estimation
-            if len(cube_markers) <= 2:
-                # Estimate pose for each marker, compute cube center from each, average centers
-                centers = []
-                rotations = []
-                for marker_id in cube_markers:
-                    idx = np.where(detected_ids == marker_id)[0][0]
-                    marker_corners_single = corners[idx]
-                    rvecs, tvecs, _ = cv2.aruco.estimatePoseSingleMarkers(
-                        marker_corners_single, self.marker_size, self.camera_matrix, self.dist_coeffs
-                    )
-                    rvec = rvecs[0][0]
-                    tvec = tvecs[0][0]
-                    offset = self.cube_marker_positions[marker_id]
-                    R, _ = cv2.Rodrigues(rvec)
-                    cube_center = tvec + R @ offset
-                    centers.append(cube_center)
-                    rotations.append(R)
-                # Average the centers
-                avg_center = np.mean(centers, axis=0)
-                # Use the first marker's rotation for now
-                R = rotations[0]
-                # For visualization, transform coordinates
-                tvec_plot = np.array([-avg_center[0], -avg_center[2], -avg_center[1]])
-                rotation_matrix_plot = np.array([[-1, 0, 0], [0, 0, -1], [0, -1, 0]]) @ R @ np.array([[-1, 0, 0], [0, 0, -1], [0, -1, 0]]).T
-            # 3+ markers pose estimation
-            elif len(cube_markers) >= 3:
-                # Get indices of cube markers
-                cube_indices = [np.where(detected_ids == id)[0][0] for id in cube_markers]
-                cube_corners = [corners[i] for i in cube_indices]
-                # Estimate cube pose
-                rvec, tvec = None, None
-                if len(cube_markers) == 3:
-                    # Use SQPNP for 3 points
-                    object_points = []
-                    image_points = []
-                    for i, marker_id in enumerate(cube_markers):
-                        if marker_id in self.cube_marker_positions:
-                            marker_3d_pos = self.cube_marker_positions[marker_id]
-                            object_points.append(marker_3d_pos)
-                            corners2d = cube_corners[i]
-                            center_2d = np.mean(corners2d[0], axis=0)
-                            image_points.append(center_2d)
-                    object_points = np.array(object_points, dtype=np.float32)
-                    image_points = np.array(image_points, dtype=np.float32)
-                    if len(object_points) == 3:
-                        success, rvec, tvec = cv2.solvePnP(
-                            object_points, image_points, self.camera_matrix, self.dist_coeffs,
-                            flags=cv2.SOLVEPNP_SQPNP
-                        )
-                        if not success:
-                            rvec, tvec = None, None
-                else:
-                    # Use default for 4+ points
-                    rvec, tvec = self._estimate_cube_pose(cube_markers, cube_corners, 
-                                                self.camera_matrix, self.dist_coeffs)
-                if rvec is not None and tvec is not None:
-                    tvec_plot = np.array([-tvec[0][0], -tvec[2][0], -tvec[1][0]])
-                    rotation_matrix, _ = cv2.Rodrigues(rvec)
-                    transform_matrix = np.array([[-1, 0, 0], [0, 0, -1], [0, -1, 0]])
-                    rotation_matrix_plot = transform_matrix @ rotation_matrix @ transform_matrix.T
+            # Estimate pose for each marker, compute cube center from each, average centers
+            centers = []
+            rotations = []
+
+            for marker_id in cube_markers:
+                idx = np.where(detected_ids == marker_id)[0][0]
+                marker_corners_single = corners[idx]
+                rvecs, tvecs, _ = cv2.aruco.estimatePoseSingleMarkers(
+                    marker_corners_single, self.marker_size, self.camera_matrix, self.dist_coeffs
+                )
+
+                rvec = rvecs[0][0]
+                tvec = tvecs[0][0]
+                offset = self.cube_marker_positions[marker_id]
+                R, _ = cv2.Rodrigues(rvec)
+                
+                # Apply marker-specific rotation to align coordinate systems
+                R_aligned = R @ self.marker_rotations[marker_id]
+                rvec_aligned, _ = cv2.Rodrigues(R_aligned)
+
+                # Returns roll, pitch, yaw with input R
+                euler_angles = self.euler_from_matrix(R_aligned)
+
+                cube_center = tvec - R_aligned @ offset
+                centers.append(cube_center)
+                rotations.append(R_aligned)
+
+            if not centers:
+                return None, None, None
+                        
+            # Average the centers
+            avg_center = np.mean(centers, axis=0)
+            # Use the first marker's rotation for now
+            R = np.mean(rotations, axis=0)
+            # For visualization, transform coordinates
+            tvec_plot = np.array([-avg_center[0], -avg_center[2], -avg_center[1]])
+            rotation_matrix_plot = np.array([[-1, 0, 0], [0, 0, -1], [0, -1, 0]]) @ R @ np.array([[-1, 0, 0], [0, 0, -1], [0, -1, 0]]).T
+
+            self.prev_euler_angles = self.euler_from_matrix(R)
 
             # Draw all detected markers
             cv2.aruco.drawDetectedMarkers(image, corners, ids)
@@ -167,23 +168,22 @@ class ArucoCubeTracker:
                 cv2.putText(image, f"ID: {marker_id}", (10, y_offset + i*20), 
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
 
-            if rvec is not None and tvec is not None:
-                # Draw cube axes on image
-                cv2.drawFrameAxes(image, self.camera_matrix, self.dist_coeffs, 
-                                rvec, tvec, self.cube_size)
+            self.cube_positions.append(avg_center)
+            self.cube_orientations.append(R)
 
-                # Apply moving average filter
-                if len(self.cube_positions) > 0:
-                    smoothed_position = self._moving_average_filter(
-                        self.cube_positions + [tvec_plot], self.window_size)
-                else:
-                    smoothed_position = tvec_plot
-                self.cube_positions.append(smoothed_position)
-                self.cube_orientations.append(rotation_matrix_plot)
+            cv2.drawFrameAxes(image, self.camera_matrix, self.dist_coeffs, 
+                R, avg_center, self.axis_length)
 
-                return smoothed_position, rotation_matrix_plot, cube_markers
+            # Apply moving average filter
+            if len(self.cube_positions) > 0:
+                smoothed_position = self._moving_average_filter(
+                    self.cube_positions + [tvec_plot], self.window_size)
             else:
-                return None, rotation_matrix_plot, cube_markers
+                smoothed_position = tvec_plot
+            self.cube_positions.append(smoothed_position)
+            self.cube_orientations.append(rotation_matrix_plot)
+
+            return smoothed_position, rotation_matrix_plot, cube_markers
 
         else:
             return None, None, None
