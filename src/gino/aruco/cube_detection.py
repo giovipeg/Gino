@@ -89,6 +89,68 @@ class ArucoCubeTracker:
         _, _, pitch = R.from_matrix(R_rear_view).as_euler("ZYX", degrees=True)
         
         return roll, pitch, yaw
+    
+    def return_avg_pose(self, cube_markers, corners, detected_ids):
+        # Estimate pose for each marker, compute cube center from each, average centers
+        centers = []
+        rotations = []
+        for marker_id in cube_markers:
+            idx = np.where(detected_ids == marker_id)[0][0]
+            marker_corners_single = corners[idx]
+            rvecs, tvecs, _ = cv2.aruco.estimatePoseSingleMarkers(
+                marker_corners_single, self.marker_size, self.camera_matrix, self.dist_coeffs
+            )
+            rvec = rvecs[0][0]
+            tvec = tvecs[0][0]
+            offset = self.cube_marker_positions[marker_id]
+            R, _ = cv2.Rodrigues(rvec)
+
+            # Apply marker-specific rotation to align coordinate systems
+            R_aligned = R @ self.marker_rotations[marker_id]
+            rvec_aligned, _ = cv2.Rodrigues(R_aligned)
+
+            cube_center = tvec - R_aligned @ offset
+            centers.append(cube_center)
+            rotations.append(R_aligned)
+
+        # Average the centers and rotations
+        avg_center = np.mean(centers, axis=0)
+        
+        # Properly average rotation matrices using SVD orthogonalization
+        if len(rotations) == 1:
+            R = rotations[0]
+        else:
+            # Average the rotation matrices
+            R_avg = np.mean(rotations, axis=0)
+            # Orthogonalize using SVD to ensure it's a valid rotation matrix
+            U, _, Vt = np.linalg.svd(R_avg)
+            R = U @ Vt
+            # Ensure right-handed coordinate system
+            if np.linalg.det(R) < 0:
+                Vt[-1, :] *= -1
+                R = U @ Vt
+
+        return avg_center, R
+    
+    def apply_transformation(self, avg_center, R):
+        # For visualization, transform coordinates
+        tvec_plot = np.array([-avg_center[0], -avg_center[2], -avg_center[1]])
+        rotation_matrix_plot = np.array([[-1, 0, 0], [0, 0, -1], [0, -1, 0]]) @ R @ np.array([[-1, 0, 0], [0, 0, -1], [0, -1, 0]]).T
+
+        return tvec_plot, rotation_matrix_plot
+
+    def apply_moving_average(self, tvec, rotation_matrix):
+        # Apply moving average filter
+        if len(self.cube_positions) > 0:
+            smoothed_position = self._moving_average_filter(
+                self.cube_positions + [tvec], self.window_size)
+        else:
+            smoothed_position = tvec
+        
+        self.cube_positions.append(smoothed_position)
+        self.cube_orientations.append(rotation_matrix)
+
+        return smoothed_position, rotation_matrix
 
     def pose_estimation(self, image):
         # Convert to grayscale
@@ -96,52 +158,8 @@ class ArucoCubeTracker:
         
         # Detect markers
         corners, ids, _ = self.detector.detectMarkers(gray)
-        
-        rvec = None
-        tvec = None
-        rotation_matrix_plot = None
-        
+
         if ids is not None:
-            detected_ids = ids.flatten()
-            cube_markers = [int(id) for id in detected_ids if int(id) in self.cube_marker_ids]
-            
-            # Estimate pose for each marker, compute cube center from each, average centers
-            centers = []
-            rotations = []
-            for marker_id in cube_markers:
-                idx = np.where(detected_ids == marker_id)[0][0]
-                marker_corners_single = corners[idx]
-                rvecs, tvecs, _ = cv2.aruco.estimatePoseSingleMarkers(
-                    marker_corners_single, self.marker_size, self.camera_matrix, self.dist_coeffs
-                )
-                rvec = rvecs[0][0]
-                tvec = tvecs[0][0]
-                offset = self.cube_marker_positions[marker_id]
-                R, _ = cv2.Rodrigues(rvec)
-
-                # Apply marker-specific rotation to align coordinate systems
-                R_aligned = R @ self.marker_rotations[marker_id]
-                rvec_aligned, _ = cv2.Rodrigues(R_aligned)
-
-                cube_center = tvec - R_aligned @ offset
-                centers.append(cube_center)
-                rotations.append(R_aligned)
-
-            if not centers:
-                return None, None, None
-            
-            # Average the centers
-            avg_center = np.mean(centers, axis=0)
-            # Use the first marker's rotation for now
-            R = np.mean(rotations, axis=0)
-            # For visualization, transform coordinates
-            tvec_plot = np.array([-avg_center[0], -avg_center[2], -avg_center[1]])
-            rotation_matrix_plot = np.array([[-1, 0, 0], [0, 0, -1], [0, -1, 0]]) @ R @ np.array([[-1, 0, 0], [0, 0, -1], [0, -1, 0]]).T
-
-            # Returns roll, pitch, yaw with input R
-            euler_angles = self.euler_from_matrix(R)
-            print(f"Euler angles: {euler_angles}")
-
             # Draw all detected markers
             cv2.aruco.drawDetectedMarkers(image, corners, ids)
             # Add text overlay with detection info
@@ -151,19 +169,22 @@ class ArucoCubeTracker:
                 cv2.putText(image, f"ID: {marker_id}", (10, y_offset + i*20), 
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
 
+            detected_ids = ids.flatten()
+            cube_markers = [int(id) for id in detected_ids if int(id) in self.cube_marker_ids]
+
+            avg_center, R = self.return_avg_pose(cube_markers, corners, detected_ids)
+
             # Draw cube axes on image
             cv2.drawFrameAxes(image, self.camera_matrix, self.dist_coeffs, 
-                            R_aligned, cube_center, self.cube_size)
+                            R, avg_center, self.cube_size)
 
-            # Apply moving average filter
-            if len(self.cube_positions) > 0:
-                smoothed_position = self._moving_average_filter(
-                    self.cube_positions + [tvec_plot], self.window_size)
-            else:
-                smoothed_position = tvec_plot
+            # Returns roll, pitch, yaw with input R
+            euler_angles = self.euler_from_matrix(R)
+            print(f"Euler angles: {euler_angles}")
             
-            self.cube_positions.append(smoothed_position)
-            self.cube_orientations.append(rotation_matrix_plot)
+            tvec_plot, rotation_matrix_plot = self.apply_transformation(avg_center, R)
+
+            smoothed_position, rotation_matrix_plot = self.apply_moving_average(tvec_plot, rotation_matrix_plot)
 
             return smoothed_position, rotation_matrix_plot, cube_markers
 
