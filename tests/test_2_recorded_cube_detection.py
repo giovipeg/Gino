@@ -41,7 +41,7 @@ while key != ord('q') and key != 27:
     
     frame_count += 1
 
-    smoothed_position, rotation_matrix_plot, cube_markers = aruco.pose_estimation(image)
+    smoothed_position, rotation_matrix_plot, euler_angles, cube_markers = aruco.pose_estimation(image)
     
     if smoothed_position is not None:
             cube_positions.append(smoothed_position)
@@ -57,9 +57,9 @@ while key != ord('q') and key != 27:
                     aruco.cube_marker_positions, aruco.cube_size
                 )
     cv2.imshow('ArUco Cube Tracking', image)
-    key = cv2.waitKey(1) & 0xFF
+    key = cv2.waitKey() & 0xFF
 
-    print(f"fps: {1 / (time.time() - start_time)}")
+    print(f"frame: {frame_count}")
 
 cap.release()
 cv2.destroyAllWindows()
@@ -73,5 +73,5 @@ print(f"Cube positions recorded: {len(cube_positions)}")
 print(f"Total execution time: {total_exec_time:.2f} seconds")
 
 # Save trajectory to file
-np.savez('data/cube_trajectory1.npz', positions=np.array(cube_positions), orientations=np.array(cube_orientations))
-print("Cube trajectory saved to 'data/cube_trajectory1.npz'")
+np.savez('data/cube_trajectory2.npz', positions=np.array(cube_positions), orientations=np.array(cube_orientations))
+print("Cube trajectory saved to 'data/cube_trajectory2.npz'")

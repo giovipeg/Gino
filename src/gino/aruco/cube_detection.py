@@ -159,34 +159,35 @@ class ArucoCubeTracker:
         # Detect markers
         corners, ids, _ = self.detector.detectMarkers(gray)
 
-        if ids is not None:
-            # Draw all detected markers
-            cv2.aruco.drawDetectedMarkers(image, corners, ids)
-            # Add text overlay with detection info
-            y_offset = 30
-            for i, marker_id in enumerate(ids.flatten()):
-                color = (0, 255, 0) if int(marker_id) in self.cube_marker_ids else (255, 255, 255)
-                cv2.putText(image, f"ID: {marker_id}", (10, y_offset + i*20), 
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+        if ids is None:
+            return None, None, None, None
 
-            detected_ids = ids.flatten()
-            cube_markers = [int(id) for id in detected_ids if int(id) in self.cube_marker_ids]
+        # Draw all detected markers
+        cv2.aruco.drawDetectedMarkers(image, corners, ids)
+        # Add text overlay with detection info
+        y_offset = 30
+        for i, marker_id in enumerate(ids.flatten()):
+            color = (0, 255, 0) if int(marker_id) in self.cube_marker_ids else (255, 255, 255)
+            cv2.putText(image, f"ID: {marker_id}", (10, y_offset + i*20), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
 
-            avg_center, R = self.return_avg_pose(cube_markers, corners, detected_ids)
+        detected_ids = ids.flatten()
+        cube_markers = [int(id) for id in detected_ids if int(id) in self.cube_marker_ids]
 
-            # Draw cube axes on image
-            cv2.drawFrameAxes(image, self.camera_matrix, self.dist_coeffs, 
-                            R, avg_center, self.cube_size)
+        if not cube_markers:
+            return None, None, None, None
 
-            # Returns roll, pitch, yaw with input R
-            euler_angles = self.euler_from_matrix(R)
-            print(f"Euler angles: {euler_angles}")
-            
-            tvec_plot, rotation_matrix_plot = self.apply_transformation(avg_center, R)
+        avg_center, R = self.return_avg_pose(cube_markers, corners, detected_ids)
 
-            smoothed_position, rotation_matrix_plot = self.apply_moving_average(tvec_plot, rotation_matrix_plot)
+        # Draw cube axes on image
+        cv2.drawFrameAxes(image, self.camera_matrix, self.dist_coeffs, 
+                        R, avg_center, self.cube_size)
 
-            return smoothed_position, rotation_matrix_plot, cube_markers
+        # Returns roll, pitch, yaw with input R
+        euler_angles = self.euler_from_matrix(R)
 
-        else:
-            return None, None, None
+        tvec_plot, rotation_matrix_plot = self.apply_transformation(avg_center, R)
+
+        smoothed_position, rotation_matrix_plot = self.apply_moving_average(tvec_plot, rotation_matrix_plot)
+
+        return smoothed_position, rotation_matrix_plot, euler_angles, cube_markers

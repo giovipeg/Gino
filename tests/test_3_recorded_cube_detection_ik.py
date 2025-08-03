@@ -127,7 +127,7 @@ while key != ord('q') and key != 27:
                 actual_ee_points.append(ee_actual)
 
                 # Draw robot
-                robot_viz.draw(ax, q_vis)
+                robot_viz.draw(ax)
 
                 # Draw desired and actual trajectory so far (update line data instead of plotting new lines)
                 traj_array = np.array(desired_ee_points)

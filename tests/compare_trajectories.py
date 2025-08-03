@@ -39,6 +39,6 @@ def compare_trajectories(file1, file2):
 
 if __name__ == "__main__":
     # Hardcoded file paths
-    file1 = 'data/cube_trajectory_control.npz'
+    file1 = 'data/cube_trajectory2.npz'
     file2 = 'data/cube_trajectory1.npz'
     compare_trajectories(file1, file2) 

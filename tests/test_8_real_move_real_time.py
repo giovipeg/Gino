@@ -40,6 +40,10 @@ movement_active = False
 reference_arm_position = None
 reference_cube_position = None
 
+# Tilt angle oscillation variables
+tilt_start_time = time.time()
+tilt_period = 8.0  # Time in seconds for one complete cycle (0->90->0)
+
 print("Controls:")
 print("  'm' - Start/stop relative movement")
 print("  'q' - Quit")
@@ -51,7 +55,8 @@ while True:
     if not ret:
         break
 
-    smoothed_position, rotation_matrix_plot, cube_markers = aruco.pose_estimation(image)
+    smoothed_position, rotation_matrix, euler_angles, cube_markers = aruco.pose_estimation(image)
+    print(euler_angles)
 
     cv2.imshow('ArUco Cube Tracking', image)
     key = cv2.waitKey(1) & 0xFF
@@ -63,7 +68,7 @@ while True:
         if not movement_active:
             # Start movement - record reference positions
             if smoothed_position is not None:
-                reference_arm_position = move._get_current_end_effector_position(frame)
+                reference_arm_position = move._get_current_end_effector_position(frame)                
                 reference_cube_position = smoothed_position.copy()
                 movement_active = True
                 print(f"Movement started. Reference arm pos: {reference_arm_position}, Reference cube pos: {reference_cube_position}")
@@ -101,7 +106,10 @@ while True:
         rot_base = np.column_stack([x_axis, y_axis, z_axis])
         
         # Add end-effector rotation around Y axis (in degrees)
-        tilt_angle = 45  # Change this value to tilt the end-effector
+        # Oscillate tilt angle between 0 and 90 degrees
+        elapsed_time = time.time() - tilt_start_time
+        # Use sine wave to create smooth oscillation: sin goes from -1 to 1, so we map it to 0-90
+        tilt_angle = 45 * (1 + np.sin(2 * np.pi * elapsed_time / tilt_period))
         tilt_rot = R.from_euler('y', tilt_angle, degrees=True).as_matrix()
         
         # Apply tilt rotation to base rotation
@@ -123,7 +131,7 @@ while True:
         cv2.putText(image, f"Target: {target_arm_position}", (10, 90), 
                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
         
-        time.sleep(0.02)  # 50 ms between points
+        #time.sleep(0.02)  # 50 ms between points
 
 move.home()
 
