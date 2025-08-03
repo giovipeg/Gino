@@ -9,7 +9,8 @@ class MCU():
         self.serial_connection = None
         
         # Store last received values
-        self.last_imu_data = None
+        self.last_pose_data = None  # roll, pitch, yaw
+        self.last_imu_data = None   # ax, ay, az
         self.last_input_data = None
         
         # Threading control
@@ -93,20 +94,35 @@ class MCU():
             print(f"Arduino: {line}")
             return
             
-        # Parse IMU data
-        if line.startswith('IMU:'):
+        # Parse POSE data (roll, pitch, yaw)
+        if line.startswith('POSE:'):
+            try:
+                pose_data = line[5:]  # Remove 'POSE:' prefix
+                values = pose_data.split(',')
+                if len(values) == 3:
+                    # Store as array: [roll, pitch, yaw]
+                    parsed_data = [
+                        float(values[0]),  # roll
+                        float(values[1]),  # pitch
+                        float(values[2])   # yaw
+                    ]
+                    with self.lock:
+                        self.last_pose_data = parsed_data
+                        self.arduino_ready = True
+            except ValueError as e:
+                print(f"Error parsing POSE data: {e}")
+                
+        # Parse IMU data (accelerometer only: ax, ay, az)
+        elif line.startswith('IMU:'):
             try:
                 imu_data = line[4:]  # Remove 'IMU:' prefix
                 values = imu_data.split(',')
-                if len(values) == 6:
-                    # Store as array: [ax, ay, az, gx, gy, gz]
+                if len(values) == 3:
+                    # Store as array: [ax, ay, az]
                     parsed_data = [
                         float(values[0]),  # ax
                         float(values[1]),  # ay
-                        float(values[2]),  # az
-                        float(values[3]),  # gx
-                        float(values[4]),  # gy
-                        float(values[5])   # gz
+                        float(values[2])   # az
                     ]
                     with self.lock:
                         self.last_imu_data = parsed_data
@@ -131,10 +147,18 @@ class MCU():
             except ValueError as e:
                 print(f"Error parsing input data: {e}")
 
+    def get_last_pose_data(self):
+        """
+        Return last known pose data as array
+        Returns: array [roll, pitch, yaw] or None if no data received yet
+        """
+        with self.lock:
+            return self.last_pose_data.copy() if self.last_pose_data else None
+
     def get_last_imu_data(self):
         """
         Return last known IMU data as array
-        Returns: array [ax, ay, az, gx, gy, gz] or None if no data received yet
+        Returns: array [ax, ay, az] or None if no data received yet
         """
         with self.lock:
             return self.last_imu_data.copy() if self.last_imu_data else None
@@ -183,11 +207,15 @@ if __name__ == "__main__":
         try:
             # Main loop - continuously read data
             while True:
+                # Get latest pose data
+                pose_data = mcu_device.get_last_pose_data()
+                if pose_data:
+                    print(f"POSE: roll={pose_data[0]:.2f}, pitch={pose_data[1]:.2f}, yaw={pose_data[2]:.2f}")
+                
                 # Get latest IMU data
                 imu_data = mcu_device.get_last_imu_data()
                 if imu_data:
                     print(f"IMU: ax={imu_data[0]:.2f}, ay={imu_data[1]:.2f}, az={imu_data[2]:.2f}")
-                    print(f"     gx={imu_data[3]:.2f}, gy={imu_data[4]:.2f}, gz={imu_data[5]:.2f}")
                 
                 # Get latest input data
                 input_data = mcu_device.get_last_input_data()
