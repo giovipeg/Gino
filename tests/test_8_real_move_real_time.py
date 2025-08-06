@@ -12,11 +12,25 @@ from src.gino.kinematics.kinematics import RobotKinematics
 from src.gino.kinematics.robot_visualization import RobotVisualisation
 from src.gino.kinematics.move_robot import MoveRobot
 from src.gino.aruco.cube_detection import ArucoCubeTracker
+from src.gino.mcu.mcu import MCU
+
+mcu = MCU('/dev/ttyACM1', 500000)
+# Connect to MCU
+if mcu.connect():
+    print("MCU connected successfully!")
+    
+    # Wait for Arduino to be ready
+    print("Waiting for Arduino to send first data...")
+    while not mcu.is_arduino_ready():
+        time.sleep(0.1)
+    print("Arduino is ready!")
+else:
+    print("Failed to connect to MCU!")
 
 aruco = ArucoCubeTracker()
 
 robot_config = SO101FollowerConfig(
-    port="/dev/ttyACM0",
+    port="/dev/ttyACM2",
     id="toni",
 )
 
@@ -56,7 +70,11 @@ while True:
         break
 
     smoothed_position, rotation_matrix, euler_angles, cube_markers = aruco.pose_estimation(image)
-    print(euler_angles)
+    outlier = aruco.outlier_detection(mcu.get_last_pose_data(), euler_angles, threshold=15)
+
+    if outlier:
+        print("Outlier detected")
+        #continue
 
     cv2.imshow('ArUco Cube Tracking', image)
     key = cv2.waitKey(1) & 0xFF
@@ -109,7 +127,8 @@ while True:
         # Oscillate tilt angle between 0 and 90 degrees
         elapsed_time = time.time() - tilt_start_time
         # Use sine wave to create smooth oscillation: sin goes from -1 to 1, so we map it to 0-90
-        tilt_angle = 45 * (1 + np.sin(2 * np.pi * elapsed_time / tilt_period))
+        #tilt_angle = 45 * (1 + np.sin(2 * np.pi * elapsed_time / tilt_period))
+        tilt_angle = 0
         tilt_rot = R.from_euler('y', tilt_angle, degrees=True).as_matrix()
         
         # Apply tilt rotation to base rotation

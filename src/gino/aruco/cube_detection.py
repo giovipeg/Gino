@@ -2,10 +2,17 @@ import cv2
 import numpy as np
 import time
 from scipy.spatial.transform import Rotation as R
+import sys
+import os
+
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..')))
+from src.gino.mcu.mcu import MCU
 
 class ArucoCubeTracker:
     def __init__(self, calib_file='data/camera_calib.npz', 
                  cube_size=0.04, marker_size=0.03):
+        self.prev_gt_euler = None
+        self.prev_euler = None
 
         # Camera calibration parameters
         calib = np.load(calib_file)
@@ -52,6 +59,9 @@ class ArucoCubeTracker:
                         [0, 0, 1],    # y is cube's z flipped
                         [0, -1, 0]])    # z is cube's y flipped
         }
+
+        # Minimal rest orientation compensation: identity by default
+        self.marker_rest_rotations = {marker_id: np.eye(3) for marker_id in self.cube_marker_ids}
 
         # 180° rotation about Y
         self.R_flip = np.array([[-1, 0,  0],
@@ -107,11 +117,22 @@ class ArucoCubeTracker:
 
             # Apply marker-specific rotation to align coordinate systems
             R_aligned = R @ self.marker_rotations[marker_id]
-            rvec_aligned, _ = cv2.Rodrigues(R_aligned)
+
+            # --- Rest orientation compensation ---
+            R_rest = self.marker_rest_rotations[marker_id]
+            R_relative = R_aligned @ np.linalg.inv(R_rest)
+            # -------------------------------------
+
+            rvec_aligned, _ = cv2.Rodrigues(R_relative)
+
+            # Returns roll, pitch, yaw with input R
+            euler_angles = self.euler_from_matrix(R_relative)
+
+            # print(f"R_relative: {euler_angles}")
 
             cube_center = tvec - R_aligned @ offset
             centers.append(cube_center)
-            rotations.append(R_aligned)
+            rotations.append(R_relative)
 
         # Average the centers and rotations
         avg_center = np.mean(centers, axis=0)
@@ -191,3 +212,47 @@ class ArucoCubeTracker:
         smoothed_position, rotation_matrix_plot = self.apply_moving_average(tvec_plot, rotation_matrix_plot)
 
         return smoothed_position, rotation_matrix_plot, euler_angles, cube_markers
+
+    def outlier_detection(self, gt_euler, euler, threshold=10):
+        """
+        Detect outliers in Euler angle measurements.
+        
+        Args:
+            gt_euler: Ground truth Euler angles as tuple (roll, pitch, yaw) or array [roll, pitch, yaw] or None
+            euler: Measured Euler angles as tuple (roll, pitch, yaw) or array [roll, pitch, yaw]
+            threshold: Threshold for outlier detection (degrees)
+            
+        Returns:
+            bool: True if outlier detected, False otherwise
+        """
+        # Handle case where ground truth data is not available yet
+        if euler is None:
+            if self.prev_euler is None:
+                self.prev_euler = euler
+            return False
+        
+        if self.prev_gt_euler is None or self.prev_euler is None:
+            self.prev_gt_euler = gt_euler
+            self.prev_euler = euler
+            return False
+        
+        # Convert to numpy arrays if they aren't already
+        # Handle both tuples and arrays
+        gt_euler = np.array(gt_euler)
+        euler = np.array(euler)
+        
+        delta_gt = gt_euler - self.prev_gt_euler
+        delta_euler = euler - self.prev_euler
+
+        self.prev_gt_euler = gt_euler.copy()
+        self.prev_euler = euler.copy()
+
+        # Check if any component exceeds the threshold
+        component_outlier = np.any(np.abs(delta_euler) > np.abs(delta_gt) + threshold)
+        
+        # Use component-wise check as it's more sensitive to individual axis changes
+        if component_outlier:
+            print(f"Outlier detected: delta_euler={delta_euler}, delta_gt={delta_gt}, threshold={threshold}")
+            return True
+        else:
+            return False

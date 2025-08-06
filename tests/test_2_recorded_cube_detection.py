@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import src.gino.aruco.visualization_utils as viz
 from src.gino.aruco.cube_detection import ArucoCubeTracker
+from src.gino.mcu.mcu import MCU
 
 # Visualization toggles
 VISUALIZE_POSITION = False  # Set to True to visualize position
@@ -20,6 +21,19 @@ if VISUALIZE_POSITION or VISUALIZE_POSE:
 else:
     fig_pos = ax_pos = fig_pose = ax_pose = None
 
+mcu = MCU('/dev/ttyACM1', 500000)
+# Connect to MCU
+if mcu.connect():
+    print("MCU connected successfully!")
+    
+    # Wait for Arduino to be ready
+    print("Waiting for Arduino to send first data...")
+    while not mcu.is_arduino_ready():
+        time.sleep(0.1)
+    print("Arduino is ready!")
+else:
+    print("Failed to connect to MCU!")
+
 aruco = ArucoCubeTracker()
 
 cube_positions = []
@@ -28,7 +42,7 @@ window_size = 5
 
 # Main script logic for video file
 start_script_time = time.time()
-cap = cv2.VideoCapture('data/vid2.avi')
+cap = cv2.VideoCapture(0)
 
 frame_count = 0
 key = None
@@ -42,6 +56,7 @@ while key != ord('q') and key != 27:
     frame_count += 1
 
     smoothed_position, rotation_matrix_plot, euler_angles, cube_markers = aruco.pose_estimation(image)
+    aruco.outlier_detection(mcu.get_last_pose_data(), euler_angles)
     
     if smoothed_position is not None:
             cube_positions.append(smoothed_position)
@@ -57,9 +72,7 @@ while key != ord('q') and key != 27:
                     aruco.cube_marker_positions, aruco.cube_size
                 )
     cv2.imshow('ArUco Cube Tracking', image)
-    key = cv2.waitKey() & 0xFF
-
-    print(f"frame: {frame_count}")
+    key = cv2.waitKey(17) & 0xFF
 
 cap.release()
 cv2.destroyAllWindows()
