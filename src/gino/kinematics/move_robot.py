@@ -146,35 +146,47 @@ class MoveRobot:
         if self.use_sim_time:
             plt.show()
 
-    def home(self, num_steps=300):
+    def home(self, counts_per_loop=10):
         """
-        Move robot to home1 position smoothly over specified number of steps.
+        Move robot to home1 position smoothly, moving each motor by at most counts_per_loop in each loop.
         
         Args:
-            num_steps (int): Number of steps to transition from current to home position
+            counts_per_loop (int): Maximum number of counts to move each motor in each loop
         """
         if self.use_sim_time or self.robot is None:
             print("Warning: home1 called in simulation mode or with no robot")
             return
         
-        # Get current motor positions using the highlighted read method
+        # Get current motor positions
         current_positions = {}
         for motor_name in self.home_dict.keys():
             current_positions[motor_name] = self.robot.bus.read("Present_Position", motor_name, normalize=False)
         
-        # Create smooth trajectory for each motor
-        for step in range(num_steps):
-            # Calculate interpolation factor (0 to 1)
-            alpha = step / (num_steps - 1) if num_steps > 1 else 1.0
-            
-            # Interpolate between current and target positions
+        # Calculate number of steps needed for each motor
+        steps_needed = []
+        for motor_name in self.home_dict.keys():
+            current_pos = current_positions[motor_name]
+            target_pos = self.home_dict[motor_name]
+            steps = int(np.ceil(abs(target_pos - current_pos) / counts_per_loop))
+            steps_needed.append(steps)
+        num_steps = max(steps_needed)
+        if num_steps == 0:
+            return  # Already at home
+        
+        for step in range(1, num_steps + 1):
             for motor_name in self.home_dict.keys():
                 current_pos = current_positions[motor_name]
                 target_pos = self.home_dict[motor_name]
-                interpolated_pos = current_pos + alpha * (target_pos - current_pos)
-                
-                # Send interpolated position to robot using the highlighted write method
+                delta = target_pos - current_pos
+                if abs(delta) < 1e-6:
+                    interpolated_pos = target_pos
+                else:
+                    move_amount = np.clip(delta, -counts_per_loop, counts_per_loop)
+                    # If this is the last step, go exactly to target
+                    if step == num_steps:
+                        interpolated_pos = target_pos
+                    else:
+                        interpolated_pos = current_pos + move_amount
+                    current_positions[motor_name] = interpolated_pos
                 self.robot.bus.write("Goal_Position", motor_name, int(interpolated_pos), normalize=False)
-            
-            # Small delay to allow robot to process the command
-            time.sleep(0.01)  # 100ms delay between steps
+            time.sleep(0.01)  # 10ms delay between steps

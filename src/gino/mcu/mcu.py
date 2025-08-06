@@ -9,8 +9,9 @@ class MCU():
         self.serial_connection = None
         
         # Store last received values
-        self.last_pose_data = None  # roll, pitch, yaw
-        self.last_imu_data = None   # ax, ay, az
+        self.last_pose_data = None  # New: roll, pitch, yaw
+        self.last_accel_data = None  # Accelerometer: ax, ay, az
+        self.last_gyro_data = None   # Gyroscope: gx, gy, gz
         self.last_input_data = None
         
         # Threading control
@@ -94,7 +95,7 @@ class MCU():
             print(f"Arduino: {line}")
             return
             
-        # Parse POSE data (roll, pitch, yaw)
+        # Parse POSE data (new format)
         if line.startswith('POSE:'):
             try:
                 pose_data = line[5:]  # Remove 'POSE:' prefix
@@ -112,20 +113,27 @@ class MCU():
             except ValueError as e:
                 print(f"Error parsing POSE data: {e}")
                 
-        # Parse IMU data (accelerometer only: ax, ay, az)
-        elif line.startswith('IMU:'):
+        # Parse IMU data (updated format - accelerometer and gyroscope)
+        elif line.startswith('IMU;'):
             try:
-                imu_data = line[4:]  # Remove 'IMU:' prefix
+                imu_data = line[4:]  # Remove 'IMU;' prefix
                 values = imu_data.split(',')
-                if len(values) == 3:
-                    # Store as array: [ax, ay, az]
-                    parsed_data = [
+                if len(values) == 6:
+                    # Parse accelerometer data: [ax, ay, az]
+                    accel_data = [
                         float(values[0]),  # ax
                         float(values[1]),  # ay
                         float(values[2])   # az
                     ]
+                    # Parse gyroscope data: [gx, gy, gz]
+                    gyro_data = [
+                        float(values[3]),  # gx
+                        float(values[4]),  # gy
+                        float(values[5])   # gz
+                    ]
                     with self.lock:
-                        self.last_imu_data = parsed_data
+                        self.last_accel_data = accel_data
+                        self.last_gyro_data = gyro_data
                         self.arduino_ready = True
             except ValueError as e:
                 print(f"Error parsing IMU data: {e}")
@@ -149,19 +157,27 @@ class MCU():
 
     def get_last_pose_data(self):
         """
-        Return last known pose data as array
+        Return last known POSE data as array
         Returns: array [roll, pitch, yaw] or None if no data received yet
         """
         with self.lock:
             return self.last_pose_data.copy() if self.last_pose_data else None
 
-    def get_last_imu_data(self):
+    def get_last_accel_data(self):
         """
-        Return last known IMU data as array
+        Return last known accelerometer data as array
         Returns: array [ax, ay, az] or None if no data received yet
         """
         with self.lock:
-            return self.last_imu_data.copy() if self.last_imu_data else None
+            return self.last_accel_data.copy() if self.last_accel_data else None
+
+    def get_last_gyro_data(self):
+        """
+        Return last known gyroscope data as array
+        Returns: array [gx, gy, gz] or None if no data received yet
+        """
+        with self.lock:
+            return self.last_gyro_data.copy() if self.last_gyro_data else None
 
     def get_last_input_data(self):
         """
@@ -207,15 +223,20 @@ if __name__ == "__main__":
         try:
             # Main loop - continuously read data
             while True:
-                # Get latest pose data
+                # Get latest POSE data
                 pose_data = mcu_device.get_last_pose_data()
                 if pose_data:
                     print(f"POSE: roll={pose_data[0]:.2f}, pitch={pose_data[1]:.2f}, yaw={pose_data[2]:.2f}")
                 
-                # Get latest IMU data
-                imu_data = mcu_device.get_last_imu_data()
-                if imu_data:
-                    print(f"IMU: ax={imu_data[0]:.2f}, ay={imu_data[1]:.2f}, az={imu_data[2]:.2f}")
+                # Get latest accelerometer data
+                accel_data = mcu_device.get_last_accel_data()
+                if accel_data:
+                    print(f"Accel: ax={accel_data[0]:.2f}, ay={accel_data[1]:.2f}, az={accel_data[2]:.2f}")
+                
+                # Get latest gyroscope data
+                gyro_data = mcu_device.get_last_gyro_data()
+                if gyro_data:
+                    print(f"Gyro: gx={gyro_data[0]:.2f}, gy={gyro_data[1]:.2f}, gz={gyro_data[2]:.2f}")
                 
                 # Get latest input data
                 input_data = mcu_device.get_last_input_data()

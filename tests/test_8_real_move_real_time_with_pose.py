@@ -15,7 +15,7 @@ from src.gino.aruco.cube_detection import ArucoCubeTracker
 from src.gino.mcu.mcu import MCU
 from src.gino.kinematics.orientation_fusion import OrientationFusion
 
-mcu = MCU('/dev/ttyACM0', 500000)
+mcu = MCU('/dev/ttyACM1', 500000)
 # Connect to MCU
 if mcu.connect():
     print("MCU connected successfully!")
@@ -38,7 +38,7 @@ orientation_fusion = OrientationFusion(
 )
 
 robot_config = SO101FollowerConfig(
-    port="/dev/ttyACM1",
+    port="/dev/ttyACM0",
     id="toni",
 )
 
@@ -100,6 +100,10 @@ while True:
     # Get current state for display
     current_state = orientation_fusion.get_current_state()
     
+    # Get potentiometer value
+    input_data = mcu.get_last_input_data()
+    potentiometer_value = input_data['potentiometer_value'] if input_data else None
+    
     outlier = aruco.outlier_detection(mcu.get_last_pose_data(), euler_angles, threshold=15)
 
     if outlier:
@@ -144,6 +148,12 @@ while True:
     if reference_arm_position is not None:
         print(f"Ref Arm Pos:    X={reference_arm_position[0]:6.3f}, Y={reference_arm_position[1]:6.3f}, Z={reference_arm_position[2]:6.3f}")
     
+    # Print potentiometer value
+    if potentiometer_value is not None:
+        print(f"Potentiometer:  {potentiometer_value:3d} (0-1023)")
+    else:
+        print("Potentiometer:  N/A")
+    
     print("-" * 80)
     print("Controls: 'm' - Start/stop movement, 'q' - Quit")
     print("=" * 80)
@@ -153,7 +163,7 @@ while True:
     
     if key == ord('q'):
         break
-    elif key == ord('m'):
+    elif key == ord('m') or key == ord('h'):
         # Toggle movement mode
         if not movement_active:
             # Start movement - record reference positions
@@ -168,14 +178,25 @@ while True:
             # Stop movement
             movement_active = False
             print("Movement stopped.")
+            if key == ord('h'):
+                move.home()
     
     # Execute real-time relative movement
     if movement_active and smoothed_position is not None and reference_cube_position is not None:
         # Calculate relative movement of the cube
         cube_delta = smoothed_position - reference_cube_position
         
+        # --- Axis remapping: Map cube's Z (forward) to robot's X (forward) ---
+        # Adjust this mapping if needed for your robot's coordinate system
+        # Example: remapped_delta = [cube Z, cube X, cube Y]
+        remapped_delta = np.array([
+            cube_delta[1],  # Cube Z (forward) -> Robot X (forward)
+            -cube_delta[0],  # Cube X (right)   -> Robot Y (sideways)
+            cube_delta[2],  # Cube Y (up)      -> Robot Z (up)
+        ])
+        
         # Calculate target arm position (relative to reference arm position)
-        target_arm_position = reference_arm_position + cube_delta
+        target_arm_position = reference_arm_position + remapped_delta
         
         # Execute the movement
         # Create a rotation matrix with Z up and X pointing to target projection
@@ -214,6 +235,7 @@ while True:
         q_sol = move.kin.ik(move.get_q_guess(), T, frame=frame, max_iters=10)
         q_sol_deg = np.degrees(q_sol)
         q_sol_deg[4] = filtered['roll']
+        q_sol_deg = np.append(q_sol_deg, potentiometer_value / 15 - 30)
         action_dict = move._create_action_dict(q_sol_deg)
         print(f"Action dict: {action_dict}")
         robot.send_action(action_dict)
