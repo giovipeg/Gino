@@ -108,6 +108,14 @@ class MoveRobot:
             action_dict[f"{motor_name}.pos"] = q_sol[i]
         return action_dict
 
+    def compute_ee_pos(self, frame):
+        # Get joints configuration
+        q_guess = self.get_q_guess()
+        # Compute start point using forward kinematics
+        start_pose = self.kin.fk(q_guess, frame)
+        return start_pose[:3, 3]
+
+
     def move_to_target(self, target_pos, frame, num_steps=500):
         # Compute start point using forward kinematics
         q_guess = self.get_q_guess()
