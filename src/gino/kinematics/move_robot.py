@@ -86,7 +86,7 @@ class MoveRobot:
         position = pose[:3, 3]
         return position
 
-    def get_ik_solution(self, rot, pos, frame):
+    def get_ik_solution(self, rot, pos, frame, weights6=None):
         rot_matrix = R.from_euler("ZYX", rot, degrees=True).as_matrix()
 
         # Build target SE(3) pose
@@ -97,7 +97,7 @@ class MoveRobot:
         q_guess = self.get_q_guess()
 
         # Solve IK for joint angles (in radians)
-        q_sol = self.kin.ik(q_guess, T, frame=frame, max_iters=10)
+        q_sol = self.kin.ik(q_guess, T, frame=frame, max_iters=10, weights6=weights6)
         self.current_q = q_sol.copy()  # Update current joint state with best effort
         return q_sol
     
@@ -116,7 +116,7 @@ class MoveRobot:
         return start_pose[:3, 3]
 
 
-    def move_to_target(self, target_pos, frame, num_steps=500):
+    def move_to_target(self, target_pos, frame, num_steps=500, ignore_yaw=True):
         # Compute start point using forward kinematics
         q_guess = self.get_q_guess()
         
@@ -128,7 +128,8 @@ class MoveRobot:
 
         # TO-DO: use rot value at start of the movement
         for t, pos in enumerate(traj_points):
-            q_sol = self.get_ik_solution(self._get_current_end_effector_orientation(frame), pos, frame)
+            weights6 = np.array([1, 1, 1, 1, 1, 0]) if ignore_yaw else None
+            q_sol = self.get_ik_solution(self._get_current_end_effector_orientation(frame), pos, frame, weights6=weights6)
 
             if not self.use_sim_time:
                 q_sol = np.degrees(q_sol)

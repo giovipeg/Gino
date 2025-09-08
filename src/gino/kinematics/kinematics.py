@@ -89,6 +89,7 @@ class RobotKinematics:
         tol: float = 1e-3,
         max_iters: int = 5,
         damping: float = 1e-4,
+        weights6: np.ndarray | None = None,  # Optional 6D weights [vx vy vz wx wy wz]
     ):
         fid = self.model.getFrameId(frame or self.frame_name)
         q = np.array(q0, dtype=np.float64)
@@ -108,8 +109,20 @@ class RobotKinematics:
                 return self.current_q
 
             J = self.jacobian(q, frame, pin.LOCAL)
-            H = J.T @ J + damping * np.eye(J.shape[1])
-            dq = np.linalg.solve(H, J.T @ err6)
+
+            # Apply optional weighting on 6D task error to, e.g., ignore yaw for 5-DoF arms
+            if weights6 is not None:
+                if weights6.shape != (6,):
+                    raise ValueError("weights6 must be shape (6,)")
+                W = np.diag(weights6)
+                Jw = W @ J
+                errw = W @ err6
+            else:
+                Jw = J
+                errw = err6
+
+            H = Jw.T @ Jw + damping * np.eye(Jw.shape[1])
+            dq = np.linalg.solve(H, Jw.T @ errw)
 
             q[: len(dq)] += dq
             q = pin.normalize(self.model, q)
