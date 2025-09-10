@@ -3,6 +3,7 @@ import os
 import sys
 from scipy.spatial.transform import Rotation as R
 import json
+import matplotlib.pyplot as plt
 
 from lerobot.robots.so101_follower import SO101FollowerConfig, SO101Follower
 
@@ -40,6 +41,7 @@ urdf_path = os.path.abspath(urdf_path)
 kin = RobotKinematics(urdf_path)
 viz = RobotVisualisation(kin, urdf_name, trajectory_viz=True)
 move = MoveRobot(kin, robot=robot, visualization=viz, use_sim_time=False)
+move.set_ik_weights([1.0, 1.0, 1.0, 1.0, 1.0, 0])
 frame = viz.link_names[5]  # 6th link is end-effector
 
 move.home()
@@ -53,6 +55,7 @@ positions_log = []
 output_file = "positions_log.json"
 
 try:
+    i = 0
     while True:
         position, quaternion, controls = receiver.receive()
         print(quaternion)
@@ -64,11 +67,33 @@ try:
         save_positions_to_file(positions_log, output_file)
         
         # Remap Unity rotation to robot frame: R_robot = C * R_unity * C^T
+        
         C = np.array([
-            [0, 1, 0],
-            [0, 0, -1],
-            [1, 0, 0]
+            [1.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
+            [0.0, -1.0, 0.0]
         ])
+        
+        D = np.array([
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, 1.0],
+            [1.0, 0.0, 0.0]
+        ])
+
+        # --- Method A: Matrix route ---
+        R_unity = R.from_quat(quaternion).as_matrix()
+        R_robot = C @ R_unity @ C.T
+        q_robot = R.from_matrix(R_robot).as_quat()
+
+        rr = D @ R_robot @ D.T
+
+        print("Remapped quaternion (matrix method):", q_robot)
+
+
+
+
+
+
 
         # Build base rotation matrix
         target_horizontal = np.array([target_pos[0], target_pos[1], 0.0])
@@ -86,13 +111,16 @@ try:
         # Apply rotations to base rotation (order: tilt then roll in EE frame)
         rot_to_target = rot_base @ tilt_rot @ roll_rot
 
+        R_ee = R.from_quat(quaternion).as_matrix()
+        rot_to_target = rot_base @ R_robot
+
         # Build target SE(3) pose
         T = np.eye(4)
-        T[:3, :3] = rot_to_target
+        T[:3, :3] = R_robot
         T[:3, 3] = target_pos
 
         # Solve IK for joint angles (in radians)
-        q_sol = kin.ik(move.get_q_guess(), T, frame=frame, max_iters=10)
+        q_sol = kin.ik(move.get_q_guess(), T, frame=frame, max_iters=10, weights6=move.default_weights6)
         current_q = q_sol.copy()  # Update current joint state with best effort
         q_sol = q_sol
 
