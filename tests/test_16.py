@@ -59,6 +59,8 @@ C = np.array([
     [0.0, 0.0, 1.0],
     [0.0, -1.0, 0.0]
 ])
+angles_thresh = 2
+prev_q = None
 
 try:
     while True:
@@ -72,6 +74,8 @@ try:
 
             controller_zero = remap_convert(position)
             start_position = np.array(move.compute_ee_pos(frame=frame))
+
+            prev_q = None
         elif controls["button1"] is not True:
             position = remap_convert(position)
 
@@ -91,12 +95,22 @@ try:
             # Solve IK for joint angles (in radians)
             q_sol = kin.ik(move.get_q_guess(), T, frame=frame, max_iters=10, weights6=move.default_weights6)
             q_sol = np.degrees(q_sol)
+            
+            # Clip q_sol values to prevent erratic behaviour
+            if prev_q is not None:
+                q_sol = np.clip(q_sol, prev_q - angles_thresh, prev_q + angles_thresh)
+
+            prev_q = q_sol
+            print(q_sol)
+            #q_sol[4] = 90 - q_sol[4]
             q_sol = np.append(q_sol, 90 - controls["slider"] * 90)
             action_dict = move._create_action_dict(q_sol)
             move.robot.send_action(action_dict)
         else:
             controller_zero = remap_convert(position)
             start_position = np.array(move.compute_ee_pos(frame=frame))
+
+            prev_q = None
 
 except KeyboardInterrupt:
     save_positions_to_file(positions_log, output_file)
