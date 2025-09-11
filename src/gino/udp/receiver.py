@@ -21,7 +21,7 @@ class Receiver():
         
         # Split data
         parts = msg.split(',')
-        if len(parts) != 13:
+        if len(parts) != 10:
             print(f"Invalid message length: {len(parts)}")
 
         pos_x, pos_y, pos_z = map(float, parts[0:3])
@@ -32,7 +32,11 @@ class Receiver():
 
         position = [pos_x, pos_y, pos_z]
         quaternion = [quat_x, quat_y, quat_z, quat_w]
-        controls = [button1, button2, slider]
+        controls = {
+            "button1": button1,
+            "button2": button2,
+            "slider": slider
+        }
 
         return position, quaternion, controls
     
