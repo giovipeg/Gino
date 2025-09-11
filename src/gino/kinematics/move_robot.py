@@ -20,6 +20,9 @@ class MoveRobot:
         self.viz = visualization
         self.use_sim_time = use_sim_time
         
+        # Optional default IK weights [vx, vy, vz, wx, wy, wz]
+        self.default_weights6 = None
+        
         # Initialize motor names mapping for action dictionary
         self.motor_names = []
         if not self.use_sim_time and self.robot is not None:
@@ -35,7 +38,7 @@ class MoveRobot:
                 'elbow_flex': self.robot.bus.calibration['elbow_flex'].range_max,
                 'wrist_flex': (self.robot.bus.calibration['wrist_flex'].range_max + self.robot.bus.calibration['wrist_flex'].range_min) / 2,
                 'wrist_roll': (self.robot.bus.calibration['wrist_roll'].range_max + self.robot.bus.calibration['wrist_roll'].range_min) / 2,
-                'gripper': self.robot.bus.calibration['gripper'].range_min
+                'gripper': self.robot.bus.calibration['gripper'].range_max
             }
 
     def get_q_guess(self):
@@ -86,6 +89,17 @@ class MoveRobot:
         position = pose[:3, 3]
         return position
 
+    def set_ik_weights(self, weights6: np.ndarray | None):
+        """
+        Set default IK task-space weights. Order: [vx, vy, vz, wx, wy, wz].
+        If None, no default weighting will be applied.
+        """
+        if weights6 is not None:
+            weights6 = np.asarray(weights6, dtype=float)
+            if weights6.shape != (6,):
+                raise ValueError("weights6 must be shape (6,)")
+        self.default_weights6 = weights6
+
     def get_ik_solution(self, rot, pos, frame, weights6=None):
         rot_matrix = R.from_euler("ZYX", rot, degrees=True).as_matrix()
 
@@ -97,6 +111,8 @@ class MoveRobot:
         q_guess = self.get_q_guess()
 
         # Solve IK for joint angles (in radians)
+        if weights6 is None:
+            weights6 = self.default_weights6
         q_sol = self.kin.ik(q_guess, T, frame=frame, max_iters=10, weights6=weights6)
         self.current_q = q_sol.copy()  # Update current joint state with best effort
         return q_sol
