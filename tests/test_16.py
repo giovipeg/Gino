@@ -59,9 +59,9 @@ C = np.array([
     [0.0, 0.0, 1.0],
     [0.0, -1.0, 0.0]
 ])
-angles_thresh = 2
+angles_thresh = 3
 prev_q = None
-deg_offset = 135
+deg_offset = 45
 rad_offset = np.deg2rad(deg_offset)
 
 try:
@@ -81,7 +81,7 @@ try:
         elif controls["button1"] is not True:
             position = remap_convert(position)
 
-            target_pos = position - controller_zero + start_position
+            target_pos = start_position + (position - controller_zero) * 0.6
             positions_log.append(target_pos.tolist())
             save_positions_to_file(positions_log, output_file)
             
