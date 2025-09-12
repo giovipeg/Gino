@@ -41,7 +41,7 @@ urdf_path = os.path.abspath(urdf_path)
 kin = RobotKinematics(urdf_path)
 viz = RobotVisualisation(kin, urdf_name, trajectory_viz=True)
 move = MoveRobot(kin, robot=robot, visualization=viz, use_sim_time=False)
-move.set_ik_weights([1.0, 1.0, 1.0, 1.0, 1.0, 0])
+ik_weights = np.array([1.0, 1.0, 1.0, 1.0, 1.0, 0])
 frame = viz.link_names[5]  # 6th link is end-effector
 
 move.home()
@@ -55,12 +55,14 @@ positions_log = []
 output_file = "positions_log.json"
 
 C = np.array([
-    [-1.0, 0.0, 0.0],
+    [1.0, 0.0, 0.0],
     [0.0, 0.0, 1.0],
-    [0.0, 1.0, 0.0]
+    [0.0, -1.0, 0.0]
 ])
 angles_thresh = 2
 prev_q = None
+deg_offset = 135
+rad_offset = np.deg2rad(deg_offset)
 
 try:
     while True:
@@ -93,9 +95,11 @@ try:
             T[:3, 3] = target_pos
 
             # Solve IK for joint angles (in radians)
-            q_sol = kin.ik(move.get_q_guess(), T, frame=frame, max_iters=10, weights6=move.default_weights6)
+            current_q = move.get_q_guess()
+            current_q[4] = rad_offset - current_q[4]
+            q_sol = kin.ik(current_q, T, frame=frame, max_iters=10, weights6=ik_weights)
+            q_sol[4] = rad_offset - q_sol[4]
             q_sol = np.degrees(q_sol)
-            q_sol[4] -= 90
             
             # Clip q_sol values to prevent erratic behaviour
             if prev_q is not None:
