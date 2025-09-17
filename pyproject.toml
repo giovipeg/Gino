@@ -24,3 +24,6 @@ kinematics = []
 
 [tool.setuptools]
 # Add package discovery if needed
+
+[tool.mypy]
+warn-unreachable = false

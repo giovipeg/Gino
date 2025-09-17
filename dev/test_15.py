@@ -1,9 +1,8 @@
 import numpy as np
 import os
 import sys
-import time
-import cv2
 from scipy.spatial.transform import Rotation as R
+import json
 
 from lerobot.robots.so101_follower import SO101FollowerConfig, SO101Follower
 
@@ -12,6 +11,17 @@ from src.gino.kinematics.kinematics import RobotKinematics
 from src.gino.kinematics.robot_visualization import RobotVisualisation
 from src.gino.kinematics.move_robot import MoveRobot
 from src.gino.udp.receiver import Receiver
+
+def remap_convert(unity_position):
+    return np.array([-unity_position[0] / 100, unity_position[2] / 100, unity_position[1] / 100])
+
+def save_positions_to_file(positions, filename):
+    with open(filename, 'w') as f:
+        json.dump(positions, f)
+
+def read_positions_from_file(filename):
+    with open(filename, 'r') as f:
+        return json.load(f)
 
 receiver = Receiver(udp_port=5005)
 
@@ -33,26 +43,37 @@ frame = viz.link_names[5]  # 6th link is end-effector
 
 move.home()
 
-# start_position, start_quaternion, _ = receiver.receive()
-start_position = [0, 0, 0]
+#start_position, start_quaternion, _ = receiver.receive()
+#start_position = remap_convert(start_position)
 
 position = None
+positions_log = []
+output_file = "positions_log.json"
+positions = read_positions_from_file(output_file)
 try:
-    for z in range(20):
-        # position, quaternion, controls = receiver.receive()
-        position = [0, 0, z/1000]
+    for target_pos in positions:
+        """
+        position, quaternion, controls = receiver.receive()
+        position = remap_convert(position)
 
         current_pos = move.compute_ee_pos(frame=frame)
 
         target_pos = np.array(position) - np.array(start_position) + np.array(current_pos)
+        print(target_pos)
+        positions_log.append(target_pos.tolist())
+        """
+        print(target_pos)
+
+        # save_positions_to_file(positions_log, output_file)
 
         q_sol = move.get_ik_solution(move._get_current_end_effector_orientation(frame), target_pos, frame)
         q_sol = np.degrees(q_sol)
         action_dict = move._create_action_dict(q_sol)
         move.robot.send_action(action_dict)
 
-        input("Press Enter to continue...")
+        input()
 
 except KeyboardInterrupt:
+    save_positions_to_file(positions_log, output_file)
     robot.disconnect()
     receiver.disconnect()

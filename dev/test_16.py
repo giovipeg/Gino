@@ -12,7 +12,6 @@ from src.gino.kinematics.kinematics import RobotKinematics
 from src.gino.kinematics.robot_visualization import RobotVisualisation
 from src.gino.kinematics.move_robot import MoveRobot
 from src.gino.udp.receiver import Receiver
-from test_kinematics import rk
 
 def remap_convert(unity_position):
     return np.array([-unity_position[0] / 100, -unity_position[2] / 100, unity_position[1] / 100])
