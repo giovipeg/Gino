@@ -1,141 +1,41 @@
-# Gino - Robot Kinematics, Vision, and Control
+# Gino
+## Leader free SO-100 teleop
 
-A comprehensive Python library for robot kinematics, computer vision, and real-time robot control. This project provides tools for ArUco marker detection, robot kinematics calculations, orientation fusion, and real-time robot manipulation.
+A Python library to teleoperate SO-100(1) 5DoF robot arms without the need of a leader arm, using a smartphone as control device.
 
-## Features
+## How does it work
 
-- **Robot Kinematics**: Forward and inverse kinematics using Pinocchio
-- **Computer Vision**: ArUco marker detection and tracking
-- **Real-time Control**: UDP communication for robot control
-- **Orientation Fusion**: Gyroscope and vision-based orientation estimation
-- **Robot Visualization**: 3D robot model visualization and trajectory plotting
-- **Camera Calibration**: Camera calibration utilities
+This is just if you have 5 minutes free and are curious about how it works. It's not needed if you just want to use the library.
 
-## Dependencies
+### Background
 
-### Core Dependencies
-The following dependencies are automatically installed with the package:
+The library is made up of two main parts:
+- motion tracking
+- robot control
 
-- `numpy` - Numerical computing
-- `scipy` - Scientific computing
-- `matplotlib` - Plotting and visualization
-- `opencv-contrib-python` - Computer vision (with ArUco support)
+While the latter was more straightforward, the pose estimation went through some iterations.
 
-### Additional Dependencies
+- The original idea was to use an IMU, getting rotation from the gyroscope and translation from the accelerometer.
 
-#### Pinocchio (Required for Kinematics)
-Pinocchio is required for robot kinematics calculations but must be installed manually:
+   PROBLEM: I wasn´t able to retrieve translation values from the accelerometer, no matter what how I tryied.
 
-```bash
-conda install -c conda-forge pinocchio
-```
+   NOTE: tryied on 2 different sensors:
+      - SENSORNAME from the Nintendo Switch (1) JoyCons
+      - SENSORNAME from the Arduino Nano RP2040
 
-#### LeRobot (Required for Robot Control)
-LeRobot is required for robot communication and control:
+- I then switched to ArUco markers which worked after implementing a simple sensor fusion algorithm to complement rotation values with the ones from a gyroscope VIDEO HERE.
 
-```bash
-pip install lerobot
-```
+   PROBLEM: in order to avoid motion blur (which capped the speed at which the controller cuold be used effectively) the ArUco cube needed to be backlit. I built a simple prototype PCB for that, but at that point the solution cuold not be easily replicated.
 
-#### Additional System Dependencies
-- **Serial Communication**: For robot communication via `/dev/ttyACM0`
-- **UDP Network**: For real-time control communication
-- **Camera Access**: For computer vision applications
+   NOTE: this version was likely the one that perfermed better from a smoothness/accuracy point of veiw.
 
-## Installation
+- I finally settled on using AR APIs from Unity. Which is the current implementation. I implemented (read "ChatGPT implemented") a Unity AR app which sends absolute position and orientation values over Wi-Fi. The whole app is basically just made of an API call.
 
-### 1. Clone the Repository
-```bash
-git clone <repository-url>
-cd Gino
-```
+   NOTE: I didn´t even think such a thing was possible until I stumbled on LINK from LINK. Unfortunately their implementation relied on LINK, which is not supported on iOS. Since I wanted a cross-platform option*, after a bit of ChatGPTing, I settled on Unity.
 
-### 2. Create a Virtual Environment (Recommended)
-```bash
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-```
+* At the moment no iOS version is available. Unfortunately I have no iPhones and/or Macs and both are required for the developing of the former. If you have them at your disposal and would like to help build it, I would be more than happy to provide all the help you need (its by no mean a difficult process).
 
-### 3. Install Core Dependencies
-```bash
-pip install -e .
-```
-
-### 4. Install Pinocchio
-```bash
-conda install -c conda-forge pinocchio
-```
-
-### 5. Install LeRobot
-```bash
-pip install lerobot
-```
-
-## Usage
-
-### Basic Robot Control
-The main application provides real-time robot control via UDP communication:
-
-```bash
-python main.py
-```
-
-### Running Tests
-The project includes comprehensive tests for different functionalities:
-
-```bash
-# Test kinematics
-python tests/test_kinematics.py
-
-# Test ArUco detection
-python tests/test_10_aruco_orientation.py
-
-# Test robot movement
-python tests/test_6_move_robot_joints.py
-
-# Test real-time control
-python tests/test_8_real_move_real_time.py
-```
-
-### Camera Calibration
-To calibrate your camera for ArUco detection:
-
-```bash
-# Collect calibration images
-python calibration/collect_imgs.py
-
-# Perform camera calibration
-python calibration/calibrate_camera.py
-```
-
-### Examples
-Check the `examples/` directory for usage examples:
-
-```bash
-# Orientation fusion example
-python examples/orientation_fusion_example.py
-
-# Simple orientation fusion
-python examples/simple_orientation_fusion_example.py
-```
-
-## Configuration
-
-### Robot Setup
-- Ensure your robot is connected via serial port (default: `/dev/ttyACM0`)
-- Configure the robot ID in the code (default: "toni")
-- Verify URDF files are present in `data/urdf/`
-
-### Network Configuration
-- UDP receiver runs on port 5005 by default
-- Ensure firewall allows UDP communication on this port
-
-### Camera Setup
-- Place ArUco markers in the robot workspace
-- Ensure good lighting for marker detection
-- Run camera calibration for accurate pose estimation
-
-## Project Structure
+### Project Structure
 
 ```
 Gino/
@@ -151,38 +51,82 @@ Gino/
 └── resources/       # Documentation and resources
 ```
 
-## Troubleshooting
+### Project breakdown
 
-### Common Issues
+Inside `main.py` the following actions are performed:
 
-1. **Pinocchio Import Error**
-   - Ensure Pinocchio is installed via conda: `conda install -c conda-forge pinocchio`
+- `Receiver` class from `src/gino/udp/receiver.py` is used to get and unpack the data sent over Wi-Fi from the smartphone*.
 
-2. **Robot Connection Issues**
-   - Check serial port permissions: `sudo chmod 666 /dev/ttyACM0`
-   - Verify robot is powered and connected
+- `MoveRobot` class from `src/gino/kinematics/move_robot.py` is used to perform the inverse kinematics calculations needed turn the 6D coordinates (pose + orientation) into arm joints states.
 
-3. **Camera Issues**
-   - Ensure camera permissions are granted
-   - Check if camera is being used by another application
+   - The class in turn relies on the `RobotKinematics` PINOCCHIOLINK wrapper from `src/gino/kinematics/kinematics.py`. Credits for the former code go to Joe Clinton with his LINK repository, which turned out to be really important for this project.
 
-4. **UDP Communication Issues**
-   - Verify firewall settings
-   - Check if port 5005 is available
+#### ArUco (deprecated)
+As said previously an earlier iteration of the project relied of ArUco markers for the pose estimation. The related code is no longer used by the library itself but I thought that someone could find it useful for other project, hence left it here.
 
-## Contributing
+The related files are inside the LINK brach. Thery're not well documented so feel free to ask in case of need.
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests for new functionality
-5. Submit a pull request
+## Installation
+
+### 0. LeRobot installation
+
+You should already have created the `lerobot` conda env and installed the LeRobot library inside it.
+
+Be sure to have the env activated:
+```bash
+conda activate lerobot
+```
+
+### 1. Clone the Repository
+```bash
+git clone <repository-url>
+cd Gino
+```
+
+### 3. Install Core Dependencies
+```bash
+conda install -c conda-forge numpy scipy matplotlib pyserial pinocchio
+```
+
+OPTIONAL: please note that if you wanted to experiment with the AruCo detection you'll need `opencv-contrib-python` as well. Install it as follows:
+```bash
+conda install -c conda-forge opencv
+```
+
+## Usage
+
+### Basic Robot Control
+The main application provides real-time robot control via UDP communication:
+
+```bash
+python main.py
+```
+
+## Configuration
+
+### Robot Setup
+- Ensure your robot is connected via serial port (default: `/dev/ttyACM0`)
+- Configure the robot ID in the code (default: "toni")
+- Verify URDF files are present in `data/urdf/`
+
+### Network Configuration
+- UDP receiver runs on port 5005 by default
+- Ensure firewall allows UDP communication on this port
+
+## Aknowledgements
+
+As previously mentioned I would like to warmly thank:
+
+- Joe Clinton for the LINK project. Which provided a strong base for the development of the inverse kinematics algorithm.
+- SERBIANNAME for NAME which provided the idea behind the whole app.
+- Inria for the Pinocchio library. Way too many times we think that research (expecially public one) is confined inside labs and never finds applications in the real world. This library and all the amazing things I discovered people create with it demonstrate that it is not the case.
+
+Their work has been really important for the success of this project. I really hope that it too will be useful for someone and that people will build interesting things with it.
 
 ## License
 
 This project is licensed under the terms specified in the LICENSE file.
 
-## Contact
+# Link
 
-For questions or support, contact Giovanni Pegoraro at giovipegoraro@gmail.com.
-
+This is Gino, a Python library I just realeased. It tryies to address one of the main issues with the SO-100(1) arms used extensively with the LeRobot library. These arms are a fantastic way to enter the what marketing departments like to call "embodied intelligence" which is none other than ML applied to robotics. They're cheap and easy to use and people are building amaizing applications out of them. The main drawback is the need for a leader arm, which acts as a controller for the follower arm, thus doubling the price. This library tryies to address it with an AR app and some Python code. If you want you can read more about it here: LINK.
