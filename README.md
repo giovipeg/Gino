@@ -102,6 +102,8 @@ The main application provides real-time robot control via UDP communication:
 python main.py
 ```
 
+ATTENTION: your smartphone and computer must be connected to the same network.
+
 ## Configuration
 
 ### Robot Setup

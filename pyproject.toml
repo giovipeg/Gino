@@ -11,16 +11,16 @@ authors = [
 ]
 requires-python = ">=3.8"
 dependencies = [
-    "numpy",
-    "scipy",
-    "matplotlib",
-    "opencv-contrib-python"
 ]
 
 [project.optional-dependencies]
 # Pinocchio is required for kinematics, but must be installed manually:
 # conda install -c conda-forge pinocchio
 kinematics = []
+
+# Installation instructions for conda environment:
+# 1. Install conda packages: conda install -c conda-forge numpy scipy matplotlib opencv pyserial pinocchio
+# 2. Install pip packages: pip install -e .
 
 [tool.setuptools]
 # Add package discovery if needed
