@@ -117,7 +117,7 @@ class MoveRobot:
         self.current_q = q_sol.copy()  # Update current joint state with best effort
         return q_sol
     
-    def _create_action_dict(self, q_sol):
+    def create_action_dict(self, q_sol):
         # Create action dictionary with joint positions using pre-initialized motor names
         action_dict = {}
         for i, motor_name in enumerate(self.motor_names[:len(q_sol)]):
