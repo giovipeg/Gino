@@ -149,6 +149,10 @@ The following attributes are available:
 
 IMPORTANT: keep in mind that the reference point for position/orientation for the controller will be the point where the controller is located right when the initial homing phase ends. This can be later modified by using button #3.
 
+### Dataset Collection
+
+This feature was never implemented because the official version of a similar solution came to be before this was ready.
+
 
 ## Acknowledgements
 
