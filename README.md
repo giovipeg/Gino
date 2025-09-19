@@ -164,9 +164,4 @@ As previously mentioned I would like to warmly thank:
 
 ## License
 
-
 This project is licensed under the terms specified in the LICENSE file.
-
-
-## Notes
-*At the moment no iOS version is available. Unfortunately I have no iPhones and/or Macs and both are required for the developing of the former. If you have them at your disposal and would like to help build it, I would be more than happy to provide all the help you need (it's by no means a difficult process).
