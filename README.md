@@ -4,7 +4,12 @@
 
 A Python library to teleoperate SO-100(1) 5DoF robot arms without the need of a leader arm, using a smartphone as control device.
 
-[![Watch the demo](https://img.youtube.com/vi/p6s8waqRF64/hqdefault.jpg)](https://youtu.be/p6s8waqRF64)
+<p align="center">
+  <a href="https://youtu.be/p6s8waqRF64">
+    <img src="https://img.youtube.com/vi/p6s8waqRF64/hqdefault.jpg" alt="Watch the demo video">
+  </a><br>
+  <a href="https://youtu.be/p6s8waqRF64"><em>▶ Watch the demo video (YouTube)</em></a>
+</p>
 
 ## ⚠️ IMPORTANT NOTE ⚠️
 The day before releasing the repo I stumbled upon [this post](https://www.linkedin.com/feed/update/urn:li:activity:7374436299757264896/). About 30hrs before this repo went public Hugging Face released their own teleop software which works by the same principle, rendering this whole thing basically useless. I decided to publish this anyway since it was nearly finished and I had already put some effort into it. That said, if you're interested in this functionality, the native LeRobot option is recommended.
